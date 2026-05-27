@@ -39,6 +39,8 @@ public/app.js                     # dashboard client logic
 
 **What M1 deliberately omits (later milestones):** `missions` table + Workers AI scoring (M2), additional sources (M2), Resend email + Cloudflare Access (M3), LinkedIn (M4).
 
+**Execution order:** `src/sources/types.ts` (Task 2) is foundational — Tasks 1, 3, 4, and 5 import `RawMission`/`SourceState` from it. Therefore execute **Task 2 before Task 1**; the rest follow their listed order (0 → 2 → 1 → 3 → 4 → 5 → 6 → 7). The task *numbers* below are stable labels, not the execution sequence.
+
 ---
 
 ## Task 0: Project scaffold
