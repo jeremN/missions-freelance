@@ -34,7 +34,9 @@ describe("store/db", () => {
     expect(inserted).toBe(2);
 
     const rows = await getCandidates(env.DB, { limit: 10 });
-    expect(rows.map((r) => r.externalId).sort()).toEqual(["a", "b"]);
+    // Newest-first: same fetched_at batch, so the id DESC tiebreak puts the
+    // last-inserted ("b") first. Asserting exact order verifies ORDER BY.
+    expect(rows.map((r) => r.externalId)).toEqual(["b", "a"]);
     expect(rows[0].status).toBe("pending");
   });
 

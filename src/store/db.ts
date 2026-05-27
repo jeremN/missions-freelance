@@ -125,12 +125,11 @@ export async function recordRun(db: D1Database, run: RunInput): Promise<void> {
 }
 
 export async function getStats(db: D1Database): Promise<Stats> {
-  const [cand, pending, runs] = await db.batch([
+  const [cand, pending, runs] = await db.batch<{ n: number }>([
     db.prepare("SELECT COUNT(*) AS n FROM candidates"),
     db.prepare("SELECT COUNT(*) AS n FROM candidates WHERE status = 'pending'"),
     db.prepare("SELECT COUNT(*) AS n FROM runs"),
   ]);
-  const n = (r: D1Result) =>
-    Number((r.results?.[0] as { n: number } | undefined)?.n ?? 0);
+  const n = (r: D1Result<{ n: number }>) => Number(r.results?.[0]?.n ?? 0);
   return { totalCandidates: n(cand), pending: n(pending), totalRuns: n(runs) };
 }
