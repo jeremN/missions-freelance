@@ -9,13 +9,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typegen": "wrangler types",
+    "postinstall": "wrangler types",
     "migrate:local": "wrangler d1 migrations apply missions-free --local",
     "migrate:remote": "wrangler d1 migrations apply missions-free --remote"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "latest",
-    "typescript": "latest",
-    "vitest": "latest",
-    "wrangler": "latest"
+    "@cloudflare/vitest-pool-workers": "^0.16.10",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7",
+    "wrangler": "^4.95.0"
   }
 }
