@@ -18,7 +18,7 @@
 package.json                      # scripts + devDeps
 tsconfig.json
 wrangler.jsonc                    # name, main, D1, assets, cron (fetch tick only)
-vitest.config.ts                  # defineWorkersConfig + readD1Migrations
+vitest.config.ts                  # cloudflareTest() plugin + readD1Migrations
 test/setup.ts                     # applyD1Migrations before tests
 test/env.d.ts                     # ProvidedEnv typing for cloudflare:test
 migrations/0001_init.sql          # candidates, source_state, runs
@@ -175,25 +175,31 @@ export interface Env {
 
 - [ ] **Step 7: Create `vitest.config.ts`**
 
-```ts
-import {
-  defineWorkersConfig,
-  readD1Migrations,
-} from "@cloudflare/vitest-pool-workers/config";
+> API note: `@cloudflare/vitest-pool-workers@0.16.x` (Vitest v4 era) removed the
+> `./config` subpath and `defineWorkersConfig`. The current API is the
+> `cloudflareTest()` plugin + `readD1Migrations`, both exported from the package
+> root. Verify with `node --input-type=module -e "import('@cloudflare/vitest-pool-workers').then(m=>console.log(Object.keys(m)))"`.
 
-export default defineWorkersConfig(async () => {
+```ts
+import { defineConfig } from "vitest/config";
+import {
+  cloudflareTest,
+  readD1Migrations,
+} from "@cloudflare/vitest-pool-workers";
+
+export default defineConfig(async () => {
   const migrations = await readD1Migrations("./migrations");
   return {
+    plugins: [
+      cloudflareTest({
+        wrangler: { configPath: "./wrangler.jsonc" },
+        miniflare: {
+          bindings: { TEST_MIGRATIONS: migrations },
+        },
+      }),
+    ],
     test: {
       setupFiles: ["./test/setup.ts"],
-      poolOptions: {
-        workers: {
-          wrangler: { configPath: "./wrangler.jsonc" },
-          miniflare: {
-            bindings: { TEST_MIGRATIONS: migrations },
-          },
-        },
-      },
     },
   };
 });
@@ -1391,9 +1397,9 @@ describe("worker fetch routing", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- test/index.test.ts`
-Expected: FAIL — no default export / `src/index.ts` missing.
+Expected: FAIL. (Task 0 left a placeholder `src/index.ts` that returns `"ok"` for every request, so the assertions on JSON `/api/candidates` and the HTML dashboard will fail. You will overwrite that placeholder in Step 3.)
 
-- [ ] **Step 3: Write `src/index.ts`**
+- [ ] **Step 3: Write `src/index.ts`** (overwrites the Task 0 placeholder)
 
 ```ts
 import type { Env } from "./types/env";
