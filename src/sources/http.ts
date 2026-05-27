@@ -16,6 +16,10 @@ export type FetchJson = <T>(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Cap any single backoff so a hostile/misconfigured upstream can't stall the
+// whole tick — Workers have wall-clock limits and we round-robin many sources.
+const MAX_RETRY_DELAY_MS = 20_000;
+
 /** Build a conditional, rate-limit-respecting JSON fetcher. */
 export function createFetchJson(deps: FetchJsonDeps = {}): FetchJson {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -27,8 +31,8 @@ export function createFetchJson(deps: FetchJsonDeps = {}): FetchJson {
       "User-Agent": USER_AGENT,
       Accept: "application/json",
     };
-    if (opts.etag) headers["If-None-Match"] = opts.etag;
-    if (opts.lastModified) headers["If-Modified-Since"] = opts.lastModified;
+    if (opts.etag != null) headers["If-None-Match"] = opts.etag;
+    if (opts.lastModified != null) headers["If-Modified-Since"] = opts.lastModified;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const res = await fetchImpl(url, { headers });
@@ -46,16 +50,19 @@ export function createFetchJson(deps: FetchJsonDeps = {}): FetchJson {
         };
       }
 
+      // 403 is treated as retryable because some APIs (e.g. Reddit) return it
+      // transiently under throttling, not just for true authorization failures.
       const retryable = res.status === 429 || res.status === 403 || res.status >= 500;
       if (!retryable || attempt === maxRetries) {
         throw new Error(`fetch ${url} failed: HTTP ${res.status}`);
       }
 
+      // Retry-After is in seconds; fall back to exponential backoff otherwise.
       const retryAfter = Number(res.headers.get("retry-after"));
-      const delay = Number.isFinite(retryAfter)
+      const rawDelay = Number.isFinite(retryAfter)
         ? retryAfter * 1000
         : baseDelayMs * 2 ** attempt;
-      await sleep(delay);
+      await sleep(Math.min(Math.max(0, rawDelay), MAX_RETRY_DELAY_MS));
     }
     // Unreachable, but satisfies the type checker.
     throw new Error(`fetch ${url} failed: retries exhausted`);
