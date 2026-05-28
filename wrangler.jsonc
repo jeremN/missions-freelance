@@ -18,7 +18,8 @@
     "not_found_handling": "none",
     "run_worker_first": ["/api/*"]
   },
+  "ai": { "binding": "AI" },
   "triggers": {
-    "crons": ["*/30 * * * *"]
+    "crons": ["*/30 * * * *", "*/15 * * * *"]
   }
 }
