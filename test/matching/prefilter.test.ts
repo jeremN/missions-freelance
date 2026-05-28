@@ -4,7 +4,7 @@ import type { RawMission } from "../../src/sources/types";
 
 const profile = {
   skills: ["react", "typescript"],
-  hardKill: ["cdi", "alternance"],
+  hardKill: ["cdi", "alternance", "stage"],
   tjm: { lowballBelow: 450 },
 };
 
@@ -59,5 +59,50 @@ describe("prefilter", () => {
     );
     expect(r.tjm).toBe(600);
     expect(r.lowball).toBe(false);
+  });
+
+  it("does not extract TJM when the currency is absent", () => {
+    // Bare numbers without €/EUR are intentionally ignored to avoid false
+    // positives on years, postal codes, ticket counts, etc.
+    const r = prefilter(
+      mission({ title: "React mission", body: "TJM 600 / 6 mois" }),
+      profile,
+    );
+    expect(r.tjm).toBeNull();
+  });
+
+  it("does not hard-kill 'backstage' or 'staging' via the 'stage' term", () => {
+    const r = prefilter(
+      mission({
+        title: "Senior React engineer",
+        body: "Build the Backstage developer portal in staging.",
+      }),
+      profile,
+    );
+    expect(r.passed).toBe(true);
+    expect(r.reasons.find((s) => s.startsWith("hard-kill:"))).toBeUndefined();
+  });
+
+  it("hard-kills 'stage' as a standalone word", () => {
+    const r = prefilter(
+      mission({
+        title: "Stage de fin d'études",
+        body: "Mission React de 6 mois pour stagiaire.",
+      }),
+      profile,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.reasons).toContain("hard-kill:stage");
+  });
+
+  it("accumulates both a hard-kill and no-skill-match reason", () => {
+    const r = prefilter(
+      mission({ title: "COBOL specialist", body: "Poste en CDI à Paris" }),
+      profile,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.reasons).toEqual(
+      expect.arrayContaining(["hard-kill:cdi", "no-skill-match"]),
+    );
   });
 });
