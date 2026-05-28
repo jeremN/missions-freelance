@@ -31,4 +31,14 @@ describe("worker fetch routing", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(await res.text()).toContain("missions-free");
   });
+
+  it("falls through to ASSETS for non-API, non-asset paths", async () => {
+    // The worker must NOT respond to /unknown-path itself — handleApi returns
+    // null, we delegate to env.ASSETS.fetch, which (with not_found_handling
+    // 'none') returns a non-200 for a missing asset rather than a worker-crafted
+    // JSON 404. Locks the routing contract.
+    const res = await SELF.fetch("https://worker.test/unknown-path");
+    expect(res.headers.get("content-type") ?? "").not.toContain("application/json");
+    expect(res.status).not.toBe(200);
+  });
 });
