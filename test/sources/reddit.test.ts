@@ -39,25 +39,29 @@ const listing = {
 };
 
 describe("redditAdapter", () => {
-  it("maps only [Hiring] posts to RawMission", async () => {
+  it("maps only [Hiring] posts to RawMission and surfaces the etag", async () => {
     const out = await redditAdapter.fetch(ctxReturning(listing));
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({
+    expect(out.missions).toHaveLength(1);
+    expect(out.missions[0]).toMatchObject({
       source: "reddit",
       externalId: "p1",
       url: "https://www.reddit.com/r/forhire/comments/p1/x/",
       title: expect.stringContaining("Senior React"),
     });
-    expect(out[0].postedAt).toBe(new Date(1748340000 * 1000).toISOString());
+    expect(out.missions[0].postedAt).toBe(new Date(1748340000 * 1000).toISOString());
+    expect(out.state?.etag).toBe('W/"abc"');
   });
 
-  it("returns [] when the feed is unchanged (304)", async () => {
+  it("returns no missions and no state update when the feed is unchanged (304)", async () => {
     const ctx: AdapterCtx = {
       state: { source: "reddit", etag: 'W/"abc"' },
       fetchJson: vi.fn(async () => ({ data: null, notModified: true })),
     };
     const out = await redditAdapter.fetch(ctx);
-    expect(out).toEqual([]);
+    expect(out.missions).toEqual([]);
+    // 304 path must NOT propose a state update, so the pipeline preserves
+    // the existing etag rather than clobbering it.
+    expect(out.state).toBeUndefined();
   });
 
   it("passes the stored etag to fetchJson", async () => {
@@ -68,12 +72,14 @@ describe("redditAdapter", () => {
     });
   });
 
-  it("returns [] for empty or malformed listings instead of throwing", async () => {
-    expect(await redditAdapter.fetch(ctxReturning({ data: { children: [] } }))).toEqual(
+  it("returns no missions for empty or malformed listings instead of throwing", async () => {
+    expect(
+      (await redditAdapter.fetch(ctxReturning({ data: { children: [] } }))).missions,
+    ).toEqual([]);
+    expect((await redditAdapter.fetch(ctxReturning({ data: {} }))).missions).toEqual(
       [],
     );
-    expect(await redditAdapter.fetch(ctxReturning({ data: {} }))).toEqual([]);
-    expect(await redditAdapter.fetch(ctxReturning({}))).toEqual([]);
+    expect((await redditAdapter.fetch(ctxReturning({}))).missions).toEqual([]);
   });
 
   it("drops malformed children and leaves postedAt undefined when created_utc is absent", async () => {
@@ -98,8 +104,8 @@ describe("redditAdapter", () => {
       },
     };
     const out = await redditAdapter.fetch(ctxReturning(mixed));
-    expect(out).toHaveLength(1);
-    expect(out[0].externalId).toBe("x");
-    expect(out[0].postedAt).toBeUndefined();
+    expect(out.missions).toHaveLength(1);
+    expect(out.missions[0].externalId).toBe("x");
+    expect(out.missions[0].postedAt).toBeUndefined();
   });
 });

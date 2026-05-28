@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runFetchTick } from "../../src/pipeline/fetchTick";
-import { getCandidates, getSourceState } from "../../src/store/db";
+import { getCandidates, getSourceState, setSourceState } from "../../src/store/db";
 import type { SourceAdapter } from "../../src/sources/types";
 
 beforeEach(async () => {
@@ -13,15 +13,15 @@ beforeEach(async () => {
 const stubAdapter = (rows: number): SourceAdapter => ({
   id: "stub",
   enabled: true,
-  fetch: vi.fn(async () =>
-    Array.from({ length: rows }, (_, i) => ({
+  fetch: vi.fn(async () => ({
+    missions: Array.from({ length: rows }, (_, i) => ({
       source: "stub",
       externalId: `id-${i}`,
       url: `https://x/${i}`,
       title: i === 0 ? "Senior React mission, 600€/j" : "COBOL mainframe role",
       body: "",
     })),
-  ),
+  })),
 });
 
 describe("runFetchTick", () => {
@@ -68,5 +68,39 @@ describe("runFetchTick", () => {
     });
     expect(result.errors).toBe(1);
     expect(result.inserted).toBe(1);
+  });
+
+  it("persists the etag returned by the adapter", async () => {
+    const adapter: SourceAdapter = {
+      id: "etag-src",
+      enabled: true,
+      fetch: vi.fn(async () => ({
+        missions: [],
+        state: { etag: 'W/"v42"', lastModified: "Wed, 28 May 2026 09:00:00 GMT" },
+      })),
+    };
+    await runFetchTick(env, {
+      adapters: [adapter],
+      profile: { skills: ["x"], hardKill: [], tjm: { lowballBelow: 450 } },
+    });
+    const state = await getSourceState(env.DB, "etag-src");
+    expect(state?.etag).toBe('W/"v42"');
+    expect(state?.lastModified).toBe("Wed, 28 May 2026 09:00:00 GMT");
+  });
+
+  it("preserves the existing etag when the adapter doesn't return one (e.g. 304)", async () => {
+    await setSourceState(env.DB, { source: "etag-src", etag: 'W/"old"' });
+    const adapter: SourceAdapter = {
+      id: "etag-src",
+      enabled: true,
+      // No `state` in the return — simulates a 304 / no-op fetch.
+      fetch: vi.fn(async () => ({ missions: [] })),
+    };
+    await runFetchTick(env, {
+      adapters: [adapter],
+      profile: { skills: ["x"], hardKill: [], tjm: { lowballBelow: 450 } },
+    });
+    const state = await getSourceState(env.DB, "etag-src");
+    expect(state?.etag).toBe('W/"old"');
   });
 });

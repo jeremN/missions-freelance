@@ -30,8 +30,20 @@ export interface AdapterCtx {
   ) => Promise<FetchResult<T>>;
 }
 
+/**
+ * What an adapter's `fetch()` returns. The optional `state` lets the adapter
+ * surface fresh cache validators (etag / lastModified / cursor) so the pipeline
+ * can persist them — required for conditional requests to actually work across
+ * ticks. Adapters that don't need this can omit `state`; the pipeline then
+ * preserves whatever was already stored.
+ */
+export interface AdapterRun {
+  missions: RawMission[];
+  state?: Partial<Pick<SourceState, "etag" | "lastModified" | "cursor">>;
+}
+
 export interface SourceAdapter {
   id: string;
   enabled: boolean;
-  fetch(ctx: AdapterCtx): Promise<RawMission[]>;
+  fetch(ctx: AdapterCtx): Promise<AdapterRun>;
 }

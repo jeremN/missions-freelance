@@ -1,4 +1,4 @@
-import type { AdapterCtx, RawMission, SourceAdapter } from "./types";
+import type { AdapterCtx, AdapterRun, SourceAdapter } from "./types";
 
 const FEED_URL = "https://www.reddit.com/r/forhire/new.json?limit=50";
 
@@ -32,17 +32,20 @@ export const redditAdapter: SourceAdapter = {
   id: "reddit",
   enabled: true,
 
-  async fetch(ctx: AdapterCtx): Promise<RawMission[]> {
+  async fetch(ctx: AdapterCtx): Promise<AdapterRun> {
     const res = await ctx.fetchJson<RedditListing>(FEED_URL, {
       etag: ctx.state?.etag,
     });
-    if (res.notModified || !res.data) return [];
+    if (res.notModified || !res.data) {
+      // Nothing changed upstream — don't overwrite the stored etag.
+      return { missions: [] };
+    }
 
     const children = Array.isArray(res.data.data?.children)
       ? res.data.data.children
       : [];
 
-    return children
+    const missions = children
       .map((c) => c?.data)
       .filter(validPost)
       .filter((p) => p.title.trim().toLowerCase().startsWith("[hiring]"))
@@ -63,5 +66,10 @@ export const redditAdapter: SourceAdapter = {
           postedAt: ts,
         };
       });
+
+    return {
+      missions,
+      state: { etag: res.etag, lastModified: res.lastModified },
+    };
   },
 };
