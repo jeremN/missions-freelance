@@ -46,4 +46,33 @@ describe("handleApi", () => {
     const res = await handleApi(req("/api/nope"), env);
     expect(res?.status).toBe(404);
   });
+
+  it("non-GET methods on /api/* return 405", async () => {
+    const res = await handleApi(
+      new Request("https://worker.test/api/candidates", { method: "POST" }),
+      env,
+    );
+    expect(res?.status).toBe(405);
+  });
+
+  it("falls back to default limit when ?limit is non-numeric or negative", async () => {
+    await insertCandidates(env.DB, [
+      { source: "s", externalId: "a", url: "https://x/a", title: "R", body: "", tjm: null, lowball: false },
+      { source: "s", externalId: "b", url: "https://x/b", title: "R", body: "", tjm: null, lowball: false },
+      { source: "s", externalId: "c", url: "https://x/c", title: "R", body: "", tjm: null, lowball: false },
+    ]);
+    // With the old `Number(... ?? 100)` path, `?limit=abc` → NaN → LIMIT NaN → 0 rows.
+    const garbage = await handleApi(req("/api/candidates?limit=abc"), env);
+    const { candidates: g } = (await garbage!.json()) as { candidates: unknown[] };
+    expect(g).toHaveLength(3);
+    // And the old path treated `?limit=-5` as "no limit" — must now fall back to default too.
+    const negative = await handleApi(req("/api/candidates?limit=-5"), env);
+    const { candidates: n } = (await negative!.json()) as { candidates: unknown[] };
+    expect(n).toHaveLength(3);
+  });
+
+  it("sets a no-store Cache-Control on API responses", async () => {
+    const res = await handleApi(req("/api/stats"), env);
+    expect(res?.headers.get("cache-control")).toContain("no-store");
+  });
 });
