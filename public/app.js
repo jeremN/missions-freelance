@@ -33,7 +33,7 @@ async function load() {
             ? `<span class="${c.lowball ? "low" : "tjm"}">${escapeHtml(String(c.tjm))}€/j</span> · `
             : "";
           return `<div class="card">
-              <a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.title)}</a>
+              <a href="${escapeHtml(safeUrl(c.url))}" target="_blank" rel="noopener">${escapeHtml(c.title)}</a>
               <div class="meta">${tjm}${escapeHtml(c.source)} · ${escapeHtml(String(c.postedAt ?? c.fetchedAt))}</div>
             </div>`;
         })
@@ -52,6 +52,17 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
   );
+}
+
+/**
+ * Allow only http/https URLs in href — escapeHtml defuses HTML injection but
+ * doesn't block dangerous schemes (javascript:, data:, vbscript:). Today the
+ * only adapter (Reddit) path-prefixes URLs so this is harmless; the moment M2
+ * adds adapters that pass through feed URLs directly, this guard becomes the
+ * thing that prevents `<a href="javascript:...">` from rendering.
+ */
+function safeUrl(u) {
+  return typeof u === "string" && /^https?:\/\//i.test(u) ? u : "#";
 }
 
 load();
