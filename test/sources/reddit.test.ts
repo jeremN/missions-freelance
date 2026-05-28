@@ -67,4 +67,39 @@ describe("redditAdapter", () => {
       etag: 'W/"e"',
     });
   });
+
+  it("returns [] for empty or malformed listings instead of throwing", async () => {
+    expect(await redditAdapter.fetch(ctxReturning({ data: { children: [] } }))).toEqual(
+      [],
+    );
+    expect(await redditAdapter.fetch(ctxReturning({ data: {} }))).toEqual([]);
+    expect(await redditAdapter.fetch(ctxReturning({}))).toEqual([]);
+  });
+
+  it("drops malformed children and leaves postedAt undefined when created_utc is absent", async () => {
+    const mixed = {
+      data: {
+        children: [
+          // Valid [Hiring] but no created_utc → kept, postedAt undefined.
+          {
+            data: {
+              id: "x",
+              title: "[Hiring] Valid React role",
+              selftext: "ok",
+              permalink: "/r/forhire/comments/x/",
+            },
+          },
+          // Missing permalink → dropped.
+          { data: { id: "y", title: "[Hiring] no link", selftext: "" } },
+          // Null child / inner — must not crash.
+          null,
+          { data: null },
+        ],
+      },
+    };
+    const out = await redditAdapter.fetch(ctxReturning(mixed));
+    expect(out).toHaveLength(1);
+    expect(out[0].externalId).toBe("x");
+    expect(out[0].postedAt).toBeUndefined();
+  });
 });
