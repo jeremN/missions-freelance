@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>missions-free</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0;
+             background: #0c0a1a; color: #e8e4f0; padding: 1.5rem; }
+      h1 { font-size: 1.4rem; }
+      .stats { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+      .stat { background: #1a1530; border-radius: 10px; padding: .75rem 1rem; }
+      .stat .v { font-size: 1.5rem; font-weight: 700; }
+      .stat .l { font-size: .75rem; color: #9890aa; }
+      input { width: 100%; padding: .6rem; border-radius: 8px; border: 1px solid #2a2440;
+              background: #14102a; color: inherit; margin-bottom: 1rem; box-sizing: border-box; }
+      .card { background: #14102a; border: 1px solid #221c3a; border-radius: 10px;
+              padding: .8rem 1rem; margin-bottom: .6rem; }
+      .card a { color: #8aa9ff; text-decoration: none; font-weight: 600; }
+      .meta { font-size: .8rem; color: #9890aa; margin-top: .3rem; }
+      .tjm { color: #6bcb77; } .low { color: #ff6b6b; }
+    </style>
+  </head>
+  <body>
+    <h1>🎯 missions-free</h1>
+    <div class="stats" id="stats"></div>
+    <input id="q" placeholder="Filtrer par titre…" />
+    <div id="list"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
