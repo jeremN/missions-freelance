@@ -1,5 +1,5 @@
 import type { Env } from "../types/env";
-import { getCandidates, getStats } from "../store/db";
+import { getCandidates, getRecentRuns, getStats } from "../store/db";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
@@ -44,6 +44,11 @@ export async function handleApi(
       }
       case "/api/stats":
         return json(await getStats(env.DB));
+      case "/api/runs": {
+        const limit = parseLimit(url.searchParams.get("limit"));
+        const runs = await getRecentRuns(env.DB, limit);
+        return json({ runs });
+      }
       default:
         return json({ error: "not_found" }, 404);
     }

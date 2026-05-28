@@ -110,6 +110,41 @@ export async function setSourceState(
     .run();
 }
 
+export interface RunRow {
+  id: number;
+  tick: string;
+  startedAt: string;
+  finishedAt: string | null;
+  stats: unknown;
+}
+
+/** Most-recent runs first, for the dashboard's run history. */
+export async function getRecentRuns(
+  db: D1Database,
+  limit = 50,
+): Promise<RunRow[]> {
+  const cap = Math.min(limit, 200);
+  const { results } = await db
+    .prepare(
+      `SELECT id, tick, started_at AS startedAt, finished_at AS finishedAt, stats
+         FROM runs
+        ORDER BY id DESC
+        LIMIT ?`,
+    )
+    .bind(cap)
+    .all<{
+      id: number;
+      tick: string;
+      startedAt: string;
+      finishedAt: string | null;
+      stats: string | null;
+    }>();
+  return results.map((r) => ({
+    ...r,
+    stats: r.stats ? JSON.parse(r.stats) : null,
+  }));
+}
+
 export async function recordRun(db: D1Database, run: RunInput): Promise<void> {
   await db
     .prepare(

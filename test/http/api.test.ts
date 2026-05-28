@@ -42,6 +42,28 @@ describe("handleApi", () => {
     expect(body.totalRuns).toBe(1);
   });
 
+  it("GET /api/runs returns recent runs newest-first with parsed stats", async () => {
+    await recordRun(env.DB, {
+      tick: "fetch",
+      startedAt: "2026-05-28T08:00:00.000Z",
+      finishedAt: "2026-05-28T08:00:01.000Z",
+      stats: { fetched: 3, inserted: 1 },
+    });
+    await recordRun(env.DB, {
+      tick: "fetch",
+      startedAt: "2026-05-28T08:30:00.000Z",
+    });
+    const res = await handleApi(req("/api/runs"), env);
+    expect(res?.status).toBe(200);
+    const body = (await res!.json()) as {
+      runs: Array<{ tick: string; stats: unknown }>;
+    };
+    expect(body.runs).toHaveLength(2);
+    // Newest-first (id DESC): second insert appears first.
+    expect(body.runs[0].stats).toBeNull();
+    expect(body.runs[1].stats).toEqual({ fetched: 3, inserted: 1 });
+  });
+
   it("unknown /api/* path returns 404 JSON", async () => {
     const res = await handleApi(req("/api/nope"), env);
     expect(res?.status).toBe(404);
