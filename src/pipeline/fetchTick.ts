@@ -1,7 +1,7 @@
 import type { Env } from "../types/env";
 import type { PrefilterProfile } from "../matching/prefilter";
 import { prefilter } from "../matching/prefilter";
-import { createFetchJson } from "../sources/http";
+import { createFetchClients } from "../sources/http";
 import { enabledAdapters } from "../sources/registry";
 import type { SourceAdapter } from "../sources/types";
 import {
@@ -30,7 +30,7 @@ export async function runFetchTick(
 ): Promise<FetchTickResult> {
   const adapters = opts.adapters ?? enabledAdapters();
   const profile = opts.profile ?? defaultProfile;
-  const fetchJson = createFetchJson();
+  const { fetchJson, fetchText } = createFetchClients();
   const startedAt = new Date().toISOString();
 
   let fetched = 0;
@@ -42,7 +42,7 @@ export async function runFetchTick(
     for (const adapter of adapters) {
       try {
         const prior = await getSourceState(env.DB, adapter.id);
-        const run = await adapter.fetch({ state: prior, fetchJson });
+        const run = await adapter.fetch({ state: prior, fetchJson, fetchText });
         fetched += run.missions.length;
 
         for (const m of run.missions) {
