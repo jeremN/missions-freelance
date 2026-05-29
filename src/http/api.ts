@@ -1,5 +1,6 @@
 import type { Env } from "../types/env";
 import { getCandidates, getRecentRuns, getStats } from "../store/db";
+import { getMissions } from "../store/missions";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
@@ -48,6 +49,14 @@ export async function handleApi(
         const limit = parseLimit(url.searchParams.get("limit"));
         const runs = await getRecentRuns(env.DB, limit);
         return json({ runs });
+      }
+      case "/api/missions": {
+        const limit = parseLimit(url.searchParams.get("limit"));
+        const minScore = Number(url.searchParams.get("minScore") ?? 0);
+        const safeMinScore =
+          Number.isFinite(minScore) && minScore >= 0 ? Math.min(minScore, 100) : 0;
+        const missions = await getMissions(env.DB, { limit, minScore: safeMinScore });
+        return json({ missions });
       }
       default:
         return json({ error: "not_found" }, 404);

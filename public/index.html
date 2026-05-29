@@ -20,6 +20,10 @@
       .card a { color: #8aa9ff; text-decoration: none; font-weight: 600; }
       .meta { font-size: .8rem; color: #9890aa; margin-top: .3rem; }
       .tjm { color: #6bcb77; } .low { color: #ff6b6b; }
+      .score { font-weight: 700; padding: 0 .4rem; border-radius: 6px; }
+      .score.hi { background: #1b4332; color: #95d5b2; }
+      .score.mid { background: #3a2e10; color: #ffd166; }
+      .score.lo { background: #3e1f1f; color: #ff9b9b; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
                  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
     </style>
@@ -27,6 +31,13 @@
   <body>
     <h1>🎯 missions-free</h1>
     <div class="stats" id="stats"></div>
+
+    <h2 style="font-size:1.1rem;margin-top:1.5rem">Missions</h2>
+    <label for="qm" class="sr-only">Filtrer missions par titre</label>
+    <input id="qm" placeholder="Filtrer missions par titre…" />
+    <div id="missions"></div>
+
+    <h2 style="font-size:1.1rem;margin-top:1.5rem">Candidats bruts</h2>
     <label for="q" class="sr-only">Filtrer par titre</label>
     <input id="q" placeholder="Filtrer par titre…" />
     <div id="list"></div>

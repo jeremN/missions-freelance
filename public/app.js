@@ -1,14 +1,18 @@
 async function load() {
   try {
-    const [statsRes, candRes] = await Promise.all([
+    const [statsRes, candRes, missionsRes] = await Promise.all([
       fetch("/api/stats"),
       fetch("/api/candidates?limit=200"),
+      fetch("/api/missions?limit=200"),
     ]);
-    if (!statsRes.ok || !candRes.ok) {
-      throw new Error(`api error: stats=${statsRes.status} candidates=${candRes.status}`);
+    if (!statsRes.ok || !candRes.ok || !missionsRes.ok) {
+      throw new Error(
+        `api error: stats=${statsRes.status} candidates=${candRes.status} missions=${missionsRes.status}`,
+      );
     }
     const stats = await statsRes.json();
     const { candidates } = await candRes.json();
+    const { missions } = await missionsRes.json();
 
     document.getElementById("stats").innerHTML = [
       ["Candidats", stats.totalCandidates],
@@ -22,6 +26,30 @@ async function load() {
           `<div class="stat"><div class="v">${escapeHtml(String(v))}</div><div class="l">${escapeHtml(String(l))}</div></div>`,
       )
       .join("");
+
+    const missionsEl = document.getElementById("missions");
+    const scoreClass = (s) => (s >= 80 ? "hi" : s >= 50 ? "mid" : "lo");
+    const renderMissions = (filter) => {
+      const f = filter.trim().toLowerCase();
+      missionsEl.innerHTML = missions
+        .filter((m) => !f || m.title.toLowerCase().includes(f))
+        .map((m) => {
+          const tjm = m.rateEurDay
+            ? `<span class="tjm">${escapeHtml(String(m.rateEurDay))}€/j</span> · `
+            : "";
+          const loc = m.location ? `${escapeHtml(m.location)} · ` : "";
+          return `<div class="card">
+              <span class="score ${scoreClass(m.score)}">${escapeHtml(String(m.score))}</span>
+              <a href="${escapeHtml(safeUrl(m.url))}" target="_blank" rel="noopener">${escapeHtml(m.title)}</a>
+              <div class="meta">${tjm}${escapeHtml(m.remote)} · ${escapeHtml(m.clientType)} · ${loc}${escapeHtml(m.reason || "")}</div>
+            </div>`;
+        })
+        .join("");
+    };
+    document
+      .getElementById("qm")
+      .addEventListener("input", (e) => renderMissions(e.target.value));
+    renderMissions("");
 
     const list = document.getElementById("list");
     const render = (filter) => {

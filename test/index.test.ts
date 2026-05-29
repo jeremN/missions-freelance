@@ -1,8 +1,10 @@
 import { SELF, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { insertCandidates } from "../src/store/db";
+import { upsertMission } from "../src/store/missions";
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM missions");
   await env.DB.exec("DELETE FROM candidates");
 });
 
@@ -25,18 +27,66 @@ describe("worker fetch routing", () => {
     expect(body.candidates).toHaveLength(1);
   });
 
+  it("serves /api/missions from the worker, filtered by minScore", async () => {
+    await insertCandidates(env.DB, [
+      {
+        source: "reddit",
+        externalId: "a",
+        url: "https://x/a",
+        title: "React mission",
+        body: "",
+        tjm: 600,
+        lowball: false,
+      },
+    ]);
+    const candidateId = (
+      await env.DB.prepare(
+        "SELECT id FROM candidates WHERE external_id = 'a'",
+      ).first<{ id: number }>()
+    )!.id;
+    await upsertMission(env.DB, {
+      candidateId,
+      source: "reddit",
+      url: "https://x/a",
+      title: "React mission",
+      isRealMission: true,
+      rateEurDay: 600,
+      duration: "6 mois",
+      remote: "full",
+      location: null,
+      skills: ["react"],
+      clientType: "direct",
+      score: 75,
+      reason: "ok",
+      rawResponse: "{}",
+    });
+
+    const all = await SELF.fetch("https://worker.test/api/missions");
+    const allBody = (await all.json()) as { missions: Array<{ score: number }> };
+    expect(allBody.missions).toHaveLength(1);
+    expect(allBody.missions[0].score).toBe(75);
+
+    // Exact boundary: minScore=75 should still include the score-75 mission (>= semantics).
+    const boundary = await SELF.fetch("https://worker.test/api/missions?minScore=75");
+    const boundaryBody = (await boundary.json()) as { missions: Array<{ score: number }> };
+    expect(boundaryBody.missions).toHaveLength(1);
+    expect(boundaryBody.missions[0].score).toBe(75);
+
+    const filtered = await SELF.fetch("https://worker.test/api/missions?minScore=80");
+    const filteredBody = (await filtered.json()) as { missions: unknown[] };
+    expect(filteredBody.missions).toHaveLength(0);
+  });
+
   it("serves the dashboard HTML at /", async () => {
     const res = await SELF.fetch("https://worker.test/");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("missions-free");
+    const html = await res.text();
+    expect(html).toContain("missions-free");
+    expect(html).toContain("Missions"); // new section heading
   });
 
   it("falls through to ASSETS for non-API, non-asset paths", async () => {
-    // The worker must NOT respond to /unknown-path itself — handleApi returns
-    // null, we delegate to env.ASSETS.fetch, which (with not_found_handling
-    // 'none') returns a non-200 for a missing asset rather than a worker-crafted
-    // JSON 404. Locks the routing contract.
     const res = await SELF.fetch("https://worker.test/unknown-path");
     expect(res.headers.get("content-type") ?? "").not.toContain("application/json");
     expect(res.status).not.toBe(200);
