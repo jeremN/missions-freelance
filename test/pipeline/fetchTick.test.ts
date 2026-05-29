@@ -103,4 +103,55 @@ describe("runFetchTick", () => {
     const state = await getSourceState(env.DB, "etag-src");
     expect(state?.etag).toBe('W/"old"');
   });
+
+  it("runs all enabled adapters in sequence and isolates a failing one", async () => {
+    const adapterA: SourceAdapter = {
+      id: "a",
+      enabled: true,
+      fetch: vi.fn(async () => ({
+        missions: [
+          {
+            source: "a",
+            externalId: "a-1",
+            url: "https://a.test/1",
+            title: "[Hiring] React",
+            body: "TS, full remote, 600€/j.",
+          },
+        ],
+      })) as never,
+    };
+    const adapterB: SourceAdapter = {
+      id: "b",
+      enabled: true,
+      fetch: vi.fn(async () => {
+        throw new Error("transient");
+      }) as never,
+    };
+
+    // Inline the minimum profile this test needs — avoids ghost breakage if
+    // someone edits src/config.ts skills/hardKill in an unrelated change.
+    const result = await runFetchTick(env, {
+      adapters: [adapterA, adapterB],
+      profile: { skills: ["react"], hardKill: [], tjm: { lowballBelow: 450 } },
+    });
+    expect(result.errors).toBe(1);
+    expect(result.fetched).toBe(1); // only A
+    expect(result.inserted).toBeGreaterThanOrEqual(1);
+
+    // A produced rows; B is logged but not in candidates.
+    const rows = await env.DB.prepare(
+      "SELECT source FROM candidates ORDER BY source",
+    ).all<{ source: string }>();
+    const sources = rows.results.map((r) => r.source);
+    expect(sources).toContain("a");
+    expect(sources).not.toContain("b");
+
+    // The run was recorded with adapters=2 even though one threw.
+    const run = await env.DB.prepare(
+      "SELECT stats FROM runs WHERE tick = 'fetch' ORDER BY id DESC LIMIT 1",
+    ).first<{ stats: string }>();
+    const stats = JSON.parse(run!.stats);
+    expect(stats.adapters).toBe(2);
+    expect(stats.errors).toBe(1);
+  });
 });

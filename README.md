@@ -16,10 +16,10 @@ paid plan.
 |---|---|---|
 | **M1** | Reddit `r/forhire` adapter, deterministic pre-filter, D1 store, dashboard. | ✅ Shipped |
 | **M2a** | Workers AI scoring tick (Llama 3.1 8B + function-calling), `missions` table, `/api/missions`. | ✅ Shipped |
-| M2b | Additional source adapters (FreeWork, Malt feed, LinkedIn). | Planned |
+| **M2b** | Free-Work source adapter (JSON-LD Hydra API). WTTJ dropped during recon — see spec §11.1. | ✅ Shipped |
 | M3 | Daily digest email (Resend) and Cloudflare Access in front of the dashboard. | Planned |
 
-Currently **71 tests** passing on `main`. The code has not yet been deployed
+Currently **86 tests** passing on `main`. The code has not yet been deployed
 to Cloudflare — see [Deploy](#deploy) below.
 
 ## How it works
@@ -77,7 +77,13 @@ src/
   types/env.ts          # Env bindings (DB, ASSETS, AI)
   http/api.ts           # /api/* route handlers (stats, candidates, missions, runs)
   matching/prefilter.ts # Deterministic pre-filter (skills, hard-kill, TJM)
-  sources/              # Per-source adapters (M1: reddit; M2b will add more)
+  sources/              # Per-source adapters
+    reddit.ts           # r/forhire [Hiring] posts (M1)
+    free-work.ts        # Free-Work freelance listings (M2b, Hydra JSON-LD API)
+    rss.ts              # RSS-2.0 / Atom parser (M2b, used by future adapters)
+    http.ts             # createFetchClients → { fetchJson, fetchText }
+    registry.ts         # adapters[] consumed by fetchTick
+    types.ts            # SourceAdapter, AdapterCtx, RawMission
   store/                # D1 helpers (candidates, missions, runs, budget)
   scoring/              # M2a — schema (function-calling), prompt, ai client
   pipeline/             # Cron orchestrators — fetchTick (M1) + scoreTick (M2a)

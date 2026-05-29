@@ -1,3 +1,5 @@
+import type { FetchJson, FetchText } from "./http";
+
 export interface RawMission {
   source: string;
   externalId: string;
@@ -24,10 +26,8 @@ export interface FetchResult<T> {
 
 export interface AdapterCtx {
   state: SourceState | null;
-  fetchJson: <T>(
-    url: string,
-    opts?: { etag?: string | null; lastModified?: string | null },
-  ) => Promise<FetchResult<T>>;
+  fetchJson: FetchJson;
+  fetchText: FetchText;
 }
 
 /**

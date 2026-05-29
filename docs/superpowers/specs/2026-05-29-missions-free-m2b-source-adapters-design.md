@@ -28,10 +28,11 @@ FR-language or FR-located, in-stack) candidates that reach the score tick each
 day, without inflating noise to the point of saturating the Neuron budget
 with bad scorings.
 
-**In scope:**
+**In scope (as approved at brainstorm; WTTJ dropped during recon — see §11.1):**
 
 - Add `free-work` adapter targeting Free-Work's freelance listings.
-- Add `wttj` adapter targeting WTTJ's freelance listings, France-only.
+- ~~Add `wttj` adapter targeting WTTJ's freelance listings, France-only.~~
+  **Dropped during Task 3 recon (2026-05-29).** See §11.1 — moved to M2c.
 - Extend `src/sources/http.ts` with a sibling `fetchText` helper (RSS / HTML
   bodies) alongside the existing `fetchJson`. Same retry / backoff / ETag
   semantics.
@@ -415,6 +416,36 @@ Expected total test count after M2b: **~85–90** (current 71 + ~14–18).
 ---
 
 ## 11. Known omissions, risks, and carry-forward to M2c+
+
+### 11.1 WTTJ — dropped from M2b after recon (2026-05-29)
+
+WTTJ has no public RSS or JSON jobs API. Their search UI is backed entirely
+by **Algolia**, with a referer-locked public API key embedded in
+`window.env`:
+
+- `ALGOLIA_APPLICATION_ID: "CSEKHVMS53"`
+- `ALGOLIA_API_KEY_CLIENT: "4bd8f6215d0cc52b26430765769e65a0"`
+- Index: `wttj_jobs_production_fr` (~100 k jobs total)
+
+The Algolia endpoint returns `"Method not allowed with this referer"` unless
+`Referer` matches `*.welcometothejungle.com`. The `api.welcometothejungle.com`
+search endpoint either 404s or returns 500 without a session cookie.
+
+This crosses M2b's HALT-on-auth guardrail in two ways:
+1. The referer requirement is an out-of-band auth signal (WTTJ doesn't intend
+   this endpoint for non-browser clients).
+2. The public Algolia key is rotatable — a silent 403 in production is a
+   real failure mode.
+
+**Decision:** drop WTTJ from M2b. Free-Work alone (~6 800 contractor postings)
+already saturates the M2a Neuron budget, so the "volume" goal is met.
+
+**Carry forward to M2c:** any WTTJ adapter needs to either (a) accept the
+Algolia + referer-spoof approach with explicit documentation and a
+monitoring story for the key, OR (b) wait for WTTJ to expose an official
+job-seeker API. M2c gets its own brainstorm + spec when revisited.
+
+
 
 | Item | Status | Future |
 |---|---|---|
