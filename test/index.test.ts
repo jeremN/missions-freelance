@@ -66,6 +66,12 @@ describe("worker fetch routing", () => {
     expect(allBody.missions).toHaveLength(1);
     expect(allBody.missions[0].score).toBe(75);
 
+    // Exact boundary: minScore=75 should still include the score-75 mission (>= semantics).
+    const boundary = await SELF.fetch("https://worker.test/api/missions?minScore=75");
+    const boundaryBody = (await boundary.json()) as { missions: Array<{ score: number }> };
+    expect(boundaryBody.missions).toHaveLength(1);
+    expect(boundaryBody.missions[0].score).toBe(75);
+
     const filtered = await SELF.fetch("https://worker.test/api/missions?minScore=80");
     const filteredBody = (await filtered.json()) as { missions: unknown[] };
     expect(filteredBody.missions).toHaveLength(0);

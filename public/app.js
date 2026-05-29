@@ -28,7 +28,7 @@ async function load() {
       .join("");
 
     const missionsEl = document.getElementById("missions");
-    const scoreClass = (s) => (s >= 70 ? "hi" : s >= 40 ? "mid" : "lo");
+    const scoreClass = (s) => (s >= 80 ? "hi" : s >= 50 ? "mid" : "lo");
     const renderMissions = (filter) => {
       const f = filter.trim().toLowerCase();
       missionsEl.innerHTML = missions
