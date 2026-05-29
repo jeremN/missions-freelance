@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "missions-free",
-      "database_id": "local-dev",
+      "database_id": "39254e3d-09ea-4e82-96f5-91096e08aff4",
       "migrations_dir": "migrations"
     }
   ],
