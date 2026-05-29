@@ -97,6 +97,9 @@ export function createFetchClients(deps: FetchClientsDeps = {}): FetchClients {
       opts,
     );
     if (res.status === 304) return { data: null, notModified: true };
+    // 204 No Content has an empty body — match fetchJson's behavior (return
+    // null, not "") so callers can null-check uniformly across both fetchers.
+    if (res.status === 204) return { data: null, notModified: false };
     const data = await res.text();
     return {
       data,
