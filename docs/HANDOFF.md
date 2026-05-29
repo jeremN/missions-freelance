@@ -1,217 +1,153 @@
 # missions-free — Handoff
 
-**Last update:** 2026-05-28
-**Working branch:** `m2a-ai-scoring`
-**Where to look next:** `docs/superpowers/plans/2026-05-28-missions-free-m2a-ai-scoring.md`
+**Last update:** 2026-05-29
+**Working branch:** `main` (M2a merged)
+**Where to look next:** depends on what you want to do — see "Common entry points" below.
 
 ---
 
 ## TL;DR for a fresh session
 
-1. M1 shipped, merged to `main` (39 tests). Post-merge security fix (URL-scheme allowlist) also on `main`.
-2. M2a (AI scoring) **spec + plan are written and committed** on the branch `m2a-ai-scoring`. **No M2a code has been written yet.**
-3. **The user has chosen subagent-driven execution** for M2a. Next action is to invoke `superpowers:subagent-driven-development` and dispatch the Task 0 implementer.
-4. Branch is checked out, working tree is clean.
+1. **M1 and M2a are shipped to `main`**, **71 tests pass**, branch is clean.
+2. Code is **on GitHub** at `git@github.com:jeremN/missions-freelance.git` (remote name `origin`).
+3. Code has **not yet been deployed to Cloudflare** as of this writing — the deploy steps are listed in the project root `README.md` under "Deploy".
+4. **No active milestone is in flight.** M2b (more source adapters) and M3 (digest + Cloudflare Access) are the next two natural milestones; neither has a spec or plan yet.
 
 ---
 
 ## Repo state (as of handoff)
 
 ```
-main:                 M1 fully shipped + `safeUrl` href allowlist follow-up.
-m2a-ai-scoring:       branched from main + 2 commits (spec + plan). No code yet.
-                      → 0b727f4 docs: add M2a AI scoring implementation plan
-                      → a10dbcb docs: add M2a AI scoring design spec
-                      → 3dcf38b fix: allowlist http(s) schemes in dashboard hrefs
-                      → (and all of M1 history beneath)
+main:  M1 + safeUrl follow-up + M2a (Tasks 0–7) + milestone-end fix + README
+       → 7a013e8 docs: add project README
+       → fbeef47 Merge branch 'm2a-ai-scoring': M2a AI scoring (…)
+       → 52b6a7e fix(dashboard): align scoreClass thresholds with rubric and lock minScore boundary
+       → 336c14d feat: wire score cron, /api/missions, and dashboard missions view
+       → a562541 feat: add score-tick pipeline with budget gating and atomic upsert
+       → 88c63ed feat: add scoreCandidate with function-calling, retry, and neuron accounting
+       → 0b4fb50 feat: add scoring prompt builder with rubric and few-shot anchors
+       → e84d4dd feat: add extraction tool schema and parseExtraction validator
+       → 81d36a6 feat: add daily neuron budget tracker
+       → 758701f feat: add D1 store helpers for missions
+       → 1a5bae3 chore: add missions migration, AI binding, scoring config
+       → (M2a docs commits beneath, then the M1 history)
 ```
 
-Tests: `npm test` → **39 passed**. CWD `/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
+Tests: `npm test` → **71 passed** (39 M1 + 32 M2a). CWD `/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
 
 ---
 
-## What M1 delivered (already on `main`)
+## What's live in the code today
 
-A Cloudflare Workers freelance-mission scanner running for free on the CF
-free tier. Single Worker:
+- Worker entry: `src/index.ts` — switches on `controller.cron`:
+  - `*/30 * * * *` → `runFetchTick` (M1)
+  - `*/15 * * * *` → `runScoreTick` (M2a)
+- Fetch handler routes `/api/*` → `handleApi`, else falls through to ASSETS.
+- M2a stages: budget gate → SELECT pending → for each: `scoreCandidate` (with retry) → atomic D1 batch (INSERT mission + UPDATE candidate status). `recordRun` lands in a `finally` so the audit trail always closes.
+- Daily Neuron budget is read from `runs.stats.neurons` summed since UTC midnight.
 
-- `scheduled()` cron `*/30 * * * *` → `runFetchTick`.
-- `fetch()` serves `/api/candidates`, `/api/stats`, `/api/runs` else falls
-  through to static assets in `public/`.
-- Reddit `r/forhire` adapter (`[Hiring]` only) → deterministic pre-filter
-  (skills, hard-kill, TJM extraction, lowball flag) → D1 store
-  (`candidates`, `source_state`, `runs`).
-- Dashboard: stat panel + filterable candidate cards. All scraped strings
-  escaped via `escapeHtml`, URLs scheme-allowlisted via `safeUrl`.
-
-Not yet deployed to Cloudflare. To go live:
-
-```bash
-npx wrangler login
-npx wrangler d1 create missions-free          # paste id into wrangler.jsonc
-npm run migrate:remote
-npm run deploy
-```
+A walk-through and ASCII flow diagram live in the project-root `README.md`.
 
 ---
 
-## What M2a will add (when you execute the plan)
+## Common entry points for a fresh session
 
-Spec: `docs/superpowers/specs/2026-05-28-missions-free-m2a-ai-scoring-design.md`
-Plan: `docs/superpowers/plans/2026-05-28-missions-free-m2a-ai-scoring.md`
+Pick the one that matches what you want to do:
 
-In one sentence: a **`score` cron tick** (`*/15 * * * *`) that calls
-**Workers AI Llama 3.1 8B** with **function-calling** to turn `pending`
-candidates into a new `missions` table (structured fields + 0–100 relevance
-score + reason), gated by the **10,000 Neurons/day** free allocation.
-
-**8 tasks**, mirroring M1's plan structure:
-
-```
-Task 0  Foundation: migration 0002 (missions table), AI binding in
-        wrangler.jsonc + Env, scoring config constants.
-Task 1  src/store/missions.ts (upsertMission, getMissions, …).
-Task 2  src/store/budget.ts (remainingBudget(db, now)).
-Task 3  src/scoring/schema.ts (EXTRACTION_TOOL + parseExtraction).
-Task 4  src/scoring/prompt.ts (buildScoringPrompt with rubric + few-shot).
-Task 5  src/scoring/ai.ts (scoreCandidate w/ retry + neuron accounting).
-Task 6  src/pipeline/scoreTick.ts (orchestrator, atomic upsert).
-Task 7  Wiring: /api/missions, cron switch case, dashboard missions
-        section, end-to-end SELF.fetch integration test.
-```
-
-Expected final tests: **~63** (39 M1 + ~24 M2a).
-
----
-
-## Key design decisions (locked during brainstorming)
-
-These are settled — do not re-litigate without a clear reason:
-
-| Decision | Choice | Why |
-|---|---|---|
-| M2 scope | Split into **M2a** (scoring) and **M2b** (sources). | Scoring is the value prop; evidence > more sources first. |
-| Model | `@cf/meta/llama-3.1-8b-instruct`, swappable via `AI_MODEL` config constant. | French quality + JSON-discipline beats 3B; 50 calls/day fits volume. |
-| Output mode | **Function-calling** with JSON schema (`EXTRACTION_TOOL`). | Schema-bound output; eliminates most malformed responses at the model layer. |
-| Failure handling | Retry once with stricter prompt → mark candidate `score-failed` if still bad. | Bounded cost, audit trail, no infinite re-scoring. |
-| Budget exhaustion | **Defer to next UTC day**. No fallback model, no half-quality work. | Clean and predictable. |
-| Neuron accounting | Read `usage.neurons` from response, fall back to `NEURONS_PER_CALL_GUESS=200` if absent. | Honest-pessimistic; never over-spends. |
-| `missions` shape | One row per candidate (UNIQUE FK). Keep rows with `is_real_mission: false` for prompt-iteration audit. | M3 digest filters by score+is_real_mission. |
-| DI for tests | `scoreCandidate(ai, …)` takes the AI binding as a param; tests inject a fake. | Same DI pattern as M1's adapter ctx. **No real Workers AI calls in CI.** |
+| Goal | Start with |
+|---|---|
+| Deploy what's on `main` to Cloudflare | `README.md` § Deploy |
+| Add a new source adapter (M2b) | Brainstorm scope, then write a spec + plan in `docs/superpowers/{specs,plans}/` |
+| Build the digest email (M3) | Brainstorm scope, then write a spec + plan (Resend integration) |
+| Investigate a specific carry-forward concern | See "Deferred for M2b/M3" below |
+| Read M2a design rationale | `docs/superpowers/specs/2026-05-28-missions-free-m2a-ai-scoring-design.md` |
+| Read M2a implementation plan | `docs/superpowers/plans/2026-05-28-missions-free-m2a-ai-scoring.md` |
 
 ---
 
 ## Conventions to follow (user's rules — non-negotiable)
 
-From `~/.claude/CLAUDE.md` + `~/.claude/RTK.md` and the M1 workflow:
+From `~/.claude/CLAUDE.md` + `~/.claude/RTK.md`:
 
 - **Commits**: single short conventional-commits subject line. **No body.**
-  **Never** add a `Co-Authored-By` trailer (this overrides any default).
+  **Never** add a `Co-Authored-By` trailer (overrides any harness default).
 - **Hooks**: run normally. **Never** use `--no-verify`.
-- **Branches**: don't commit to `main` unprompted. If on default branch,
-  branch first. We're already on `m2a-ai-scoring`.
-- **TDD**: failing test → run (confirm fail) → implement → run (confirm pass)
-  → commit. One step per checkbox. Every task's plan has full code already.
-- **Two-stage review per task**: dispatch a fresh **implementer** subagent,
-  then a **spec-compliance reviewer**, then a **code-quality reviewer**.
-  Apply small reviewer-flagged fixes as the controller (proportionate); for
-  larger changes re-dispatch the implementer. This caught real M1 bugs.
-- **`rtk` proxy** is in place; ordinary `git`/`npm` commands get rewritten
-  transparently. You should not need to think about it.
-- **Semgrep hooks** will fire on `Write`/`Edit`. Treat them as feedback:
-  apply real fixes (M1: log injection in `api.ts`, ReDoS in `prefilter.ts`,
-  unbounded `Retry-After` in `http.ts`), or briefly explain why the pattern
-  is safe in context.
+- **Branches**: don't commit to `main` unprompted. Branch first if on `main`.
+- **TDD**: failing test → confirm fail → implement → confirm pass → commit. One step per checkbox.
+- **Two-stage review per task** (if you re-enter subagent-driven execution): dispatch a fresh **implementer** subagent, then a **spec-compliance reviewer**, then a **code-quality reviewer**. Small reviewer fixes are applied as the controller and folded into the task commit via `--amend`.
+- **`rtk` proxy** is in place; `git`/`npm` commands get rewritten transparently.
+- **Semgrep hooks** fire on `Write`/`Edit`. Treat them as feedback — apply real fixes or briefly explain why a pattern is safe in context.
 
 ---
 
-## Patterns established in M1 — reuse in M2a
+## Deferred for M2b/M3 (carry-forward, don't lose)
 
-- **D1 access**: prepared statements + `.bind()` only. Camelcase column
-  aliases. `D1Result<{...}>` typed batch helper. See `src/store/db.ts` for
-  the canonical shape — `src/store/missions.ts` mirrors it.
-- **Test setup**: vitest-pool-workers with `cloudflareTest()` plugin from
-  the package root (NOT `defineWorkersConfig` — that API was removed in
-  0.16.x). Migrations auto-applied via `test/setup.ts` + `readD1Migrations`.
-- **Adapter DI**: anything that does external I/O is injected (M1: `fetchJson`
-  in `AdapterCtx`; M2a: `ai` parameter on `scoreCandidate`). Tests pass fakes.
-- **Tick orchestrator shape**: see `src/pipeline/fetchTick.ts` for the
-  template — `try { for adapter… } finally { recordRun }` with per-adapter
-  isolation. `scoreTick` mirrors this exactly.
-- **HTTP API**: `handleApi(request, env): Response | null` — null means
-  "not my route, fall through to assets". Validates query params (`parseLimit`
-  with NaN/negative guards). Sets `cache-control: private, no-store`.
-- **Dashboard**: plain HTML+JS in `public/`, no build step. Every dynamic
-  value passes through `escapeHtml()` (URLs additionally through `safeUrl`).
-  Flagged as a future-hardening candidate (DOMPurify / safe DOM methods),
-  but **not in scope for M2a**.
+These are real concerns surfaced during M2a reviews but explicitly deferred — they don't block any shipped functionality, they're improvement candidates for the next pass.
+
+### Type / contract hygiene
+
+- `ScoringProfile.seniority: string` is unconstrained. Tighten to a literal union (`"junior" | "mid" | "senior" | "lead"`) when the profile becomes user-editable.
+- Cross-layer name asymmetry: `Extraction.rate_eur_per_day` (snake_case, matches JSON schema) → DB column `rate_eur_day` → `MissionInput.rateEurDay` (camelCase). Intentional, but a tiny translation helper in `src/store/missions.ts` would make the boundary explicit.
+- `MissionInput` types `reason` and `rawResponse` as `string`, but `MissionDbRow` types them as `string | null` and `hydrate` coalesces with `?? ""`. Either mark them nullable in `MissionInput` or tighten `MissionDbRow`.
+
+### Schema validation
+
+- `parseExtraction` JSDoc says "type guard" but the function throws — should be "runtime validator / parser".
+- `String()` coercion for `duration` and `location` would silently accept numbers from the model — document the leniency or add a `typeof` check.
+- Required-field check uses `=== undefined` only; a field explicitly set to `null` falls through to the per-field type check, which throws with a less-specific message.
+- Schema test doesn't assert `properties` keys — a future edit could silently drop a property without test failure.
+
+### scoreTick semantics
+
+- `ScoreTickResult.failed` counts BOTH `ScoringFailedError` (permanent) and transient errors. Split into `scoreFailed` + `transientFailed` for observability.
+- `NEURONS_PER_CALL_GUESS * 2` heuristic on `ScoringFailedError` — would be more accurate if `ScoringFailedError` carried the actual neuron count from `scoreCandidate`.
+- No test for ORDER BY contract (`fetched_at ASC, id ASC`).
+- No test for budget gate at the exact boundary (`budget === NEURONS_PER_CALL_GUESS`).
+- No round-trip test (`runScoreTick` → `remainingBudget` reads back the recorded neurons).
+- D1 batch INSERT shape duplicates `upsertMission`'s SQL. Plan deliberately inlined for atomicity; a future `recordScoredMission(db, candidateId, extraction, source, url, title)` helper would DRY it without losing atomicity.
+- A deterministically-failing INSERT would keep a candidate `pending` forever (no `retry_count`). Currently documented in a comment near the catch; a real backoff column is M2b/M3 territory.
+
+### Prompt and dashboard
+
+- Rubric tier 20–49 says "lowball rate" without the threshold value; could interpolate `${profile.tjm.lowballBelow}€` for sharper signal to the model.
+- `STRICT_RETRY_NOTE` phrasing diverges slightly from the base instruction ("extract_mission tool" vs "tool-call"). Consider unifying.
+- Score-band thresholds (80/50/20) are duplicated as numeric literals in `public/app.js:31` (`scoreClass`) and in the prompt rubric. Consolidate as named constants.
+- Dashboard uses `innerHTML` with `escapeHtml` / `safeUrl` mitigations — M1's review carry-over to migrate to DOMPurify or safe DOM methods. Still M2b+.
+- `/api/missions` returns `rawResponse` (≈ 200 bytes of duplicate JSON per row). Gate behind `?debug=1` or strip in the route handler.
+
+### Schema / migration
+
+- `missions.candidate_id REFERENCES candidates(id)` has no `ON DELETE` action — default `NO ACTION`. Either add `ON DELETE CASCADE` or document the intent that candidates are append-only.
+- `idx_missions_notified` is sized for M3's "unscored notifications" filter — verify it's the right shape once M3 actually queries it.
+
+### Code organization
+
+- `hydrate` (`src/store/missions.ts`) is not exported — testable only via DB round-trip. Exporting would allow direct unit tests of its coercion logic.
+- `utcMidnight` (`src/store/budget.ts`) is not exported either — same story.
+- `setTimeout(r, 10)` in the missions store idempotency test is potentially flaky on slow CI clocks (currently strict `>` so the test would surface drift loudly rather than silently passing).
 
 ---
 
 ## Cloudflare free-tier constraints (the design's true north)
 
-Verified 2026-05-27. These are the limits everything is sized against:
+Verified 2026-05-27. Sized against:
 
-- Workers AI: **10,000 Neurons/day**. Llama 3.1 8B ≈ 200/call → ~50 calls/day.
-- Worker CPU: **10 ms per invocation** (I/O wait doesn't count).
-- Subrequests: **50 per invocation** (every fetch / D1 / AI call counts).
-- Cron triggers: **5/account**, max 15 min wall-clock.
-- D1: 500 MB DB; ~5M row-reads & 100k row-writes/day.
-- Queues / Browser Rendering: paid plan only (used as a constraint, not a
-  blocker — M2a needs neither).
+- Workers AI: **10 000 Neurons/UTC day**. Llama 3.1 8B ≈ 200/call → ~50 scorings/day.
+- Worker CPU: **10 ms per invocation** (I/O wait excluded).
+- Subrequests: **50 per invocation**. M2a worst case ≈ 26.
+- Cron triggers: **5/account**, ≤ 15 min wall clock. M1+M2a use 2.
+- D1: 500 MB DB; ~5 M row-reads & 100 k row-writes/day.
+- Queues / Browser Rendering: paid plan only.
 - Email send: not free on CF → M3 uses Resend.
 
 ---
 
-## Open questions / known minor issues (carry forward, don't lose)
+## How to resume (next session)
 
-1. **`usage.neurons` field availability** — Workers AI may or may not expose
-   per-call neurons in the response. M2a plan has a `NEURONS_PER_CALL_GUESS`
-   fallback and Task 5 tests it explicitly. Confirm against real responses
-   during Task 7's optional smoke test.
-2. **French extraction quality on Llama 8B** — only validated empirically
-   during Task 7 manual smoke. If output is poor, swap `AI_MODEL` to the 70B
-   model (one-string change, but expect ~5× Neuron cost → smaller batch).
-3. **Dashboard XSS hardening** — `innerHTML` with consistent `escapeHtml`
-   is accepted in this codebase but is a code-smell. Future task: migrate
-   to safe DOM methods or DOMPurify. Not M2a.
-4. **Browser-side test coverage** — the dashboard JS (`safeUrl`, escape,
-   render) has zero unit tests because the workers test pool has no DOM
-   and the dashboard isn't a module. Future task: jsdom or Playwright +
-   modularize `public/app.js`. Not M2a.
-5. **`/api/runs` is built and tested** but the dashboard doesn't surface
-   the run history yet. M3-ish work.
-6. **`for hire` hard-kill term** has no test in `prefilter.test.ts`. Minor
-   regression risk; one-line follow-up.
-7. **Deployment** — M1 has never actually been deployed to Cloudflare. All
-   tests pass against local D1 + Miniflare; first contact with real Workers
-   AI is Task 7's optional smoke.
+Paste something like:
 
----
+> Resuming missions-free. Read `docs/HANDOFF.md` for context. M1 + M2a are
+> shipped to `main` (71 tests green). I want to start \<deploy / M2b / M3 /
+> a specific carry-forward fix>.
 
-## How to resume
-
-In a fresh Claude session, you can paste this:
-
-> Resuming missions-free M2a. Read `docs/HANDOFF.md` for context. We're on
-> branch `m2a-ai-scoring`, the M2a plan is at
-> `docs/superpowers/plans/2026-05-28-missions-free-m2a-ai-scoring.md`, and
-> the user chose subagent-driven execution. Invoke
-> `superpowers:subagent-driven-development` and dispatch the Task 0
-> implementer.
-
-That is sufficient. The Claude doing the work should:
-
-1. Re-verify the working tree is clean and on `m2a-ai-scoring` (`git status`,
-   `git branch --show-current`).
-2. Re-verify M1's tests still pass (`npm test` → 39 green).
-3. Read this file + the plan.
-4. Invoke `superpowers:subagent-driven-development` and walk Tasks 0 → 7,
-   dispatching a fresh implementer + spec reviewer + code-quality reviewer
-   per task, fixing small issues as controller, re-dispatching for larger
-   ones.
-5. After Task 7 green, invoke `superpowers:finishing-a-development-branch`
-   and offer the merge / PR / keep / discard menu.
-
-The plan's self-review (last section of the plan doc) already cross-checks
-the plan against the spec — trust that, no need to redo it.
+That is sufficient. From there, brainstorm the goal, write a spec, write a plan, then dispatch implementers per the M2a pattern (`superpowers:subagent-driven-development`).
