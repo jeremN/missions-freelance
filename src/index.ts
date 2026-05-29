@@ -1,6 +1,7 @@
 import type { Env } from "./types/env";
 import { handleApi } from "./http/api";
 import { runFetchTick } from "./pipeline/fetchTick";
+import { runScoreTick } from "./pipeline/scoreTick";
 
 export default {
   async scheduled(
@@ -11,6 +12,9 @@ export default {
     switch (controller.cron) {
       case "*/30 * * * *":
         ctx.waitUntil(runFetchTick(env));
+        break;
+      case "*/15 * * * *":
+        ctx.waitUntil(runScoreTick(env));
         break;
       default:
         console.warn(`unhandled cron: ${controller.cron}`);
