@@ -40,3 +40,11 @@ export const scoringProfile: ScoringProfile = {
   killClientTypes: [],
   minDurationMonths: 3,
 };
+
+// ----- M3 (digest email) ----------------------------------------------------
+
+/** Minimum score for a mission to be worth emailing (matches the dashboard "good" band). */
+export const DIGEST_MIN_SCORE = 70;
+
+/** Max missions per digest email; any overflow rolls into the next day's digest. */
+export const DIGEST_MAX_ITEMS = 20;
