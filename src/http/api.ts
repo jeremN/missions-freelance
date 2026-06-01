@@ -1,6 +1,8 @@
 import type { Env } from "../types/env";
 import { getCandidates, getRecentRuns, getStats } from "../store/db";
-import { getMissions } from "../store/missions";
+import { getMissions, getUnnotifiedMissions } from "../store/missions";
+import { renderDigest } from "../email/digest";
+import { DIGEST_MAX_ITEMS, DIGEST_MIN_SCORE } from "../config";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
@@ -23,7 +25,9 @@ function parseLimit(raw: string | null): number {
 
 /**
  * Handle /api/* routes. Returns null for non-API paths so the caller can
- * fall through to static assets. Every API response is JSON, including errors.
+ * fall through to static assets. Every API response is JSON, including errors —
+ * except /api/digest/preview, which returns text/html (a read-only render of
+ * the would-be digest, no side effects).
  */
 export async function handleApi(
   request: Request,
@@ -57,6 +61,23 @@ export async function handleApi(
           Number.isFinite(minScore) && minScore >= 0 ? Math.min(minScore, 100) : 0;
         const missions = await getMissions(env.DB, { limit, minScore: safeMinScore });
         return json({ missions });
+      }
+      case "/api/digest/preview": {
+        const missions = await getUnnotifiedMissions(env.DB, {
+          minScore: DIGEST_MIN_SCORE,
+          limit: DIGEST_MAX_ITEMS,
+        });
+        const { html } = renderDigest(missions, {
+          now: new Date(),
+          minScore: DIGEST_MIN_SCORE,
+        });
+        return new Response(html, {
+          status: 200,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "private, no-store",
+          },
+        });
       }
       default:
         return json({ error: "not_found" }, 404);

@@ -2,8 +2,10 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleApi } from "../../src/http/api";
 import { insertCandidates, recordRun } from "../../src/store/db";
+import { upsertMission } from "../../src/store/missions";
 
 beforeEach(async () => {
+  await env.DB.exec("DELETE FROM missions");
   await env.DB.exec("DELETE FROM candidates");
   await env.DB.exec("DELETE FROM runs");
 });
@@ -96,5 +98,52 @@ describe("handleApi", () => {
   it("sets a no-store Cache-Control on API responses", async () => {
     const res = await handleApi(req("/api/stats"), env);
     expect(res?.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("GET /api/digest/preview renders HTML and does not mark missions notified", async () => {
+    await insertCandidates(env.DB, [
+      { source: "reddit", externalId: "a", url: "https://x/a", title: "Senior React", body: "", tjm: 600, lowball: false },
+    ]);
+    const id = (
+      await env.DB.prepare("SELECT id FROM candidates WHERE external_id = 'a'")
+        .first<{ id: number }>()
+    )!.id;
+    await upsertMission(env.DB, {
+      candidateId: id,
+      source: "reddit",
+      url: "https://x/a",
+      title: "Senior React",
+      isRealMission: true,
+      rateEurDay: 600,
+      duration: "6 mois",
+      remote: "full",
+      location: null,
+      skills: ["react"],
+      clientType: "direct",
+      score: 88,
+      reason: "great",
+      rawResponse: "{}",
+    });
+
+    const res = await handleApi(req("/api/digest/preview"), env);
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("content-type")).toContain("text/html; charset=utf-8");
+    const html = await res!.text();
+    expect(html).toContain("Senior React");
+
+    const row = await env.DB.prepare(
+      "SELECT notified FROM missions WHERE candidate_id = ?",
+    )
+      .bind(id)
+      .first<{ notified: number }>();
+    expect(row?.notified).toBe(0); // read-only
+  });
+
+  it("GET /api/digest/preview returns 200 text/html when nothing qualifies", async () => {
+    const res = await handleApi(req("/api/digest/preview"), env);
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("content-type")).toContain("text/html; charset=utf-8");
+    const html = await res!.text();
+    expect(html).toContain("No new missions"); // renderDigest's empty fragment
   });
 });
