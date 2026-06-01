@@ -4,6 +4,8 @@ import { insertCandidates } from "../../src/store/db";
 import {
   getMissions,
   getMissionsForCandidate,
+  getUnnotifiedMissions,
+  markNotified,
   upsertMission,
 } from "../../src/store/missions";
 
@@ -159,5 +161,76 @@ describe("store/missions", () => {
     });
     const m = await getMissionsForCandidate(env.DB, candidateId);
     expect(m?.score).toBe(10);
+  });
+});
+
+describe("store/missions — digest selection", () => {
+  async function seedMission(
+    externalId: string,
+    over: { score: number; isRealMission?: boolean },
+  ): Promise<number> {
+    const candidateId = await seedCandidate(externalId);
+    await upsertMission(env.DB, {
+      candidateId,
+      source: "reddit",
+      url: `https://x/${externalId}`,
+      title: `mission ${externalId}`,
+      isRealMission: over.isRealMission ?? true,
+      rateEurDay: 600,
+      duration: "6 mois",
+      remote: "full",
+      location: null,
+      skills: ["react"],
+      clientType: "direct",
+      score: over.score,
+      reason: "",
+      rawResponse: "{}",
+    });
+    return candidateId;
+  }
+
+  it("returns only un-notified, real missions at/above minScore, score desc", async () => {
+    await seedMission("hi", { score: 90 });
+    await seedMission("mid", { score: 72 });
+    await seedMission("edge", { score: 70 }); // exactly at threshold — >= is inclusive
+    await seedMission("low", { score: 50 }); // below threshold
+    await seedMission("fake", { score: 95, isRealMission: false }); // not a real mission
+
+    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
+    expect(rows.map((r) => r.score)).toEqual([90, 72, 70]);
+  });
+
+  it("excludes already-notified missions", async () => {
+    const cid = await seedMission("hi", { score: 90 });
+    const id = (
+      await env.DB.prepare("SELECT id FROM missions WHERE candidate_id = ?")
+        .bind(cid)
+        .first<{ id: number }>()
+    )!.id;
+    await markNotified(env.DB, [id]);
+
+    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("markNotified flips exactly the given ids and is a no-op on []", async () => {
+    const a = await seedMission("a", { score: 80 });
+    const b = await seedMission("b", { score: 85 });
+    const idOf = async (cid: number) =>
+      (
+        await env.DB.prepare("SELECT id FROM missions WHERE candidate_id = ?")
+          .bind(cid)
+          .first<{ id: number }>()
+      )!.id;
+    const idA = await idOf(a);
+
+    await markNotified(env.DB, []); // no-op
+    expect(await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 })).toHaveLength(2);
+
+    await markNotified(env.DB, [idA]);
+    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].candidateId).toBe(b); // only b remains un-notified
+    expect(rows[0].score).toBe(85);
   });
 });
