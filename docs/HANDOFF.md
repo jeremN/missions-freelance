@@ -84,86 +84,91 @@ npx wrangler d1 migrations apply missions-free --remote  # only if new migration
 ## Repo state (as of handoff)
 
 ```
-main (deployed):
-  → bcfe6f1 chore(deploy): pin missions-free D1 database_id
-  → 183f8ac Merge branch 'm2b-source-adapters': M2b Free-Work source adapter (WTTJ dropped to M2c)
-  → c5d0dfb fix(http): treat 204 No Content as null body in fetchText (match fetchJson)
-  → 90fbde0 feat: register free-work adapter and ship M2b (Free-Work-only)
-  → 46bad29 docs: drop WTTJ from M2b scope after Algolia recon
-  → 2e3a83e feat: add free-work source adapter
-  → 21614de feat: add RSS-2.0 and Atom feed parser via HTMLRewriter
-  → d12a991 feat: add fetchText sibling to fetchJson via createFetchClients factory
-  → b14ec3d docs: add M2b source-adapters implementation plan
-  → 7e82f3e docs: add M2b source-adapters design spec
-  → 2df0035 docs: add MIT LICENSE and refresh HANDOFF for post-M2a state
-  → 7a013e8 docs: add project README
-  → fbeef47 Merge branch 'm2a-ai-scoring': M2a AI scoring (Workers AI Llama 3.1 8B, ...)
-  → (M2a history beneath, then M1)
+main (deployed @ version b462558e):
+  → 1ce9750 docs: mark Cloudflare Access live in HANDOFF
+  → 192e7d6 docs: refresh HANDOFF for post-M3 + fetch-pipeline fix
+  → dd32f18 chore(reddit): disable adapter — unauthenticated .json now 403s
+  → 5a1093f fix(free-work): parse bare-array response after API shape change
+  → cc38651 Merge PR #1 — M3 digest email + /api/digest/preview (8 TDD commits beneath)
+  → (M2b / M2a / M1 history beneath)
 ```
 
-Tests: `npm test` → **86 passed** (39 M1 + 32 M2a + 15 M2b). CWD `/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
+Tests: `npm test` → **106 passed** (86 prior + 19 M3 + 1 fetch-fix).
+⚠️ The suite needs `wrangler login` + network (sandbox-disabled in Claude Code) —
+the vitest pool opens a remote CF session for the `ai` binding. See memory note
+`missions-free-tests-need-wrangler-auth`. CWD `/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
 
 ---
 
 ## What's live in the code today
 
 - Worker entry: `src/index.ts` — switches on `controller.cron`:
-  - `*/30 * * * *` → `runFetchTick` (M1 + M2b adapters)
+  - `*/30 * * * *` → `runFetchTick`
   - `*/15 * * * *` → `runScoreTick` (M2a)
-- Fetch handler routes `/api/*` → `handleApi`, else falls through to ASSETS.
-- **Three sources registered**: `redditAdapter` (M1, r/forhire), `freeWorkAdapter` (M2b, Free-Work Hydra JSON-LD API).
-- **`fetchText` + `parseRssItems`** infrastructure ready for M2c's RSS sources (Hellowork, future).
-- M2a pipeline unchanged — budget gate → SELECT pending → for each: `scoreCandidate` → atomic D1 batch (INSERT mission + UPDATE candidate status). `recordRun` in `finally` guarantees audit trail.
+  - `0 5 * * *` → `runDigestTick` (M3)
+- Fetch handler routes `/api/*` → `handleApi` (incl. `/api/digest/preview`,
+  which returns text/html), else falls through to ASSETS. All gated by Access.
+- **One active source**: `freeWorkAdapter` (Free-Work, now a **bare JSON array** —
+  adapter accepts both array + legacy Hydra shapes). `redditAdapter` exists but
+  `enabled:false` (403s unauthenticated; revive via OAuth).
+- **M3 digest** (`src/email/{html,digest,resend}.ts` + `src/pipeline/digestTick.ts`):
+  select un-notified real missions ≥`DIGEST_MIN_SCORE` (70, `src/config.ts`),
+  render escaped HTML+text, Resend send, then `markNotified` — **send-then-mark =
+  at-least-once**. `recordRun` in `finally`. Injectable `email`/`now` for tests.
+- **`fetchText` + RSS parser** (`src/sources/rss.ts`) still ready for M2c RSS
+  sources (Hellowork, etc.).
+- M2a pipeline unchanged — budget gate → SELECT pending → `scoreCandidate` →
+  atomic D1 batch (INSERT mission + UPDATE candidate). `recordRun` in `finally`.
 
 ---
 
-## First 24–48 hours after first deploy — what to check
+## Monitoring now (the pipeline is live & verified)
 
-These are the empirical questions that CI cannot answer.
+The first-24h watch was done on 2026-06-02 and surfaced the fetch bug (now fixed).
+Current verified behavior: fetch ticks report `{fetched:~30, inserted:~0-2, errors:0, adapters:1}`.
 
-1. **Did the first fetch tick produce any candidates?**
-   `curl https://missions-free.jeremn-code.workers.dev/api/stats | jq`
-   Expect non-zero `totalCandidates` within 30 min of deploy.
+**⚠️ The API is behind Cloudflare Access**, so unauthenticated `curl` to `/api/*`
+now returns **302** to the login page — the old monitoring curls won't return JSON.
+To inspect live data, either:
+- open the URL in a **browser** (one-time PIN login) and hit `/api/stats`,
+  `/api/runs`, `/api/missions`, `/api/digest/preview`; or
+- create an Access **service token** and send `CF-Access-Client-Id` /
+  `CF-Access-Client-Secret` headers with `curl`; or
+- read it from the Worker logs via `npx wrangler tail`.
 
-2. **Did the first score tick produce any missions?**
-   `curl https://missions-free.jeremn-code.workers.dev/api/missions | jq`
-   Expect 1–8 missions within 45 min of deploy.
-
-3. **Are `usage.neurons` values present in `runs.stats.neurons`, or is the
-   guess fallback kicking in?**
-   `curl https://missions-free.jeremn-code.workers.dev/api/runs | jq '.runs[] | {tick, stats: .stats | fromjson}'`
-   If `neurons` is consistently 200 across many score ticks, that's the
-   `NEURONS_PER_CALL_GUESS` fallback — Workers AI isn't exposing the real
-   cost. Document this in §11.x of the spec for posterity; budget tracking
-   still works but is honest-pessimistic only.
-
-4. **Llama 3.1 8B's French-extraction quality.**
-   Read 5–10 `missions.reason` lines. Are they coherent? Does the score
-   match the rubric? If quality is poor:
-   - Swap to a stronger model: change `AI_MODEL` in `src/config.ts` to
-     `"@cf/meta/llama-3.3-70b-instruct-fp8-fast"` (≈5× neuron cost; reduces
-     daily volume to ~10 scorings).
-   - Re-deploy: `npm run deploy`.
-
-5. **Free-Work signal-to-noise.**
-   Free-Work's `?contracts=contractor` is inclusive — postings tagged
-   `["contractor", "permanent"]` come through too. Look at the scored
-   missions for ~10 cycles; if more than ~30% of `is_real_mission: false`
-   results come from Free-Work, consider adding a post-filter on `contracts`
-   to the adapter.
-
-6. **Source-state ETag behavior.**
-   Reddit honors ETag → after the first tick, `runs.stats.fetched` drops to
-   0 until new posts. Free-Work has `cache-control: no-cache, private` →
-   never 304s. Both are expected.
+What to keep an eye on:
+1. **Candidates flowing?** `totalCandidates` should climb slowly as stack-relevant
+   FR contractor roles post on Free-Work (≈1-2 per fetch on a good page-1).
+2. **Digest firing?** After the 05:00 UTC tick, look for a `digest` run; `sent:true`
+   = email went out, `skipped:true` = nothing qualified that day (no email — by design).
+3. **Neuron budget / AI quality** — same as before: if `runs.stats.neurons` is
+   always 200 it's the `NEURONS_PER_CALL_GUESS` fallback; if French extraction is
+   poor, bump `AI_MODEL` in `src/config.ts` to `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
+   and redeploy.
 
 ---
 
-## M2c decision point — WTTJ-Algolia question
+## M2c — the real next milestone: DIGEST VOLUME
+
+**Why it matters now:** the pipeline works but yields a *trickle* — Free-Work is
+the only live source, and its page-1 (newest 30, all contracts) matches the
+narrow profile (`ts/react/svelte/node/cloudflare/js`) only ~1/30. Reddit is
+disabled. So digests will be sparse until volume improves. M2c should pick from:
+
+- **Broaden the prefilter profile** (`src/config.ts` `profile.skills`) — add
+  `fullstack`, `front`/`frontend`, `web`, `vue`, `angular`, `php`, `python`…
+  (cheapest lever; raises matches immediately).
+- **Free-Work query tuning** — probe the API for a tech/keyword param
+  (`searchKeywords`?) and/or paginate beyond page 1 (`src/sources/free-work.ts`
+  currently fetches page 1 only).
+- **Add Hellowork** (RSS — `parseRssItems`/`fetchText` already shipped).
+- **Reddit via OAuth** (revive the disabled adapter) — lower priority (US-centric).
+
+### Carry-over: WTTJ-Algolia question
 
 The M2b spec §11.1 documents the WTTJ finding: their job search is backed by
 **Algolia with a referer-locked public API key**. M2b dropped WTTJ to ship
-Free-Work-only. M2c needs to either resolve this or move on without WTTJ.
+Free-Work-only. M2c can resolve this or move on without WTTJ.
 
 Three viable M2c approaches (pick during M2c brainstorm):
 
@@ -174,8 +179,8 @@ Three viable M2c approaches (pick during M2c brainstorm):
 | **C. Hellowork only** | 1 adapter | Smallest M2c; bias toward steady incremental adds. |
 
 The decision is essentially: "how much do we want WTTJ specifically vs.
-general FR-freelance coverage?" Volume-wise, Hellowork + Free-Work + Reddit
-already saturate the M2a Neuron budget most days.
+general FR-freelance coverage?" (Note: the old assumption that sources saturate
+the Neuron budget no longer holds — current candidate volume is well under it.)
 
 ---
 
@@ -185,15 +190,14 @@ Pick the one that matches what you want to do:
 
 | Goal | Start with |
 |---|---|
-| First 24h watch (no code change) | `curl /api/stats` / `/api/runs` / `/api/missions` against the live worker — see §"First 24–48 hours" above |
-| Tune the user profile (skills, hardKill, TJM) | Edit `src/config.ts` → `npm test` → `npm run deploy` |
+| **Raise digest volume (M2c — the main next step)** | Broaden `profile.skills` in `src/config.ts` (quick win) and/or brainstorm Free-Work query tuning / pagination / Hellowork — write a spec+plan in `docs/superpowers/{specs,plans}/` |
+| Monitor live data (behind Access) | Browser login → `/api/stats` `/api/runs` `/api/missions` `/api/digest/preview`, or `wrangler tail` — see "Monitoring now" above |
+| Tune the profile (skills, hardKill, TJM) | Edit `src/config.ts` → `npm test` → `npm run deploy` |
 | Swap to a stronger AI model | Edit `AI_MODEL` in `src/config.ts` → `npm run deploy` |
-| Start M2c (more source adapters) | Brainstorm scope (Hellowork? Telegram? WTTJ-Algolia?), then write a spec + plan in `docs/superpowers/{specs,plans}/` |
-| Start M3 (digest email + Access) | Brainstorm Resend integration; plan Cloudflare Access in front of `/` and `/api/*` |
-| Investigate a carry-forward concern | See "Deferred for M2c/M3" below |
-| Read M2b design rationale | `docs/superpowers/specs/2026-05-29-missions-free-m2b-source-adapters-design.md` |
-| Read M2a design rationale | `docs/superpowers/specs/2026-05-28-missions-free-m2a-ai-scoring-design.md` |
-| Read original scanner spec | `docs/superpowers/specs/2026-05-27-missions-free-scanner-design.md` |
+| Revive Reddit | OAuth flow + flip `enabled:true` in `src/sources/reddit.ts` |
+| Read M3 design / plan | `docs/superpowers/specs/2026-06-01-missions-free-m3-digest-email-design.md` + `plans/2026-06-01-missions-free-m3-digest-email.md` |
+| Investigate a carry-forward concern | See "Deferred" below |
+| Read M2b / M2a / scanner rationale | `docs/superpowers/specs/2026-05-{29,28,27}-…` |
 
 ---
 
@@ -301,6 +305,21 @@ explicitly out of scope for their original milestone.
 - `setTimeout(r, 10)` in the missions store idempotency test is
   potentially flaky on slow CI clocks (strict `>` so failures are loud).
 
+### M3 digest (carry-forward)
+
+- **`notified` never resets on re-score** — a mission emailed once won't re-email
+  even if a later re-score raises its band. Add a reset rule or `notified_score`
+  watermark if re-scoring becomes meaningful.
+- **Digest failures aren't in `runs.stats`** — only `console.error` (Workers logs).
+  Could add an `error` field to the digest run stats for dashboard triage.
+- **`/api/digest/preview` returns text/html** — deliberate exception to the
+  JSON-only `/api/*` contract; revisit if the API grows content negotiation.
+- **No `X-Content-Type-Options: nosniff`** on the preview route (low severity —
+  behind Access). Add in a headers-hardening pass.
+- **Single recipient** (`DIGEST_TO`) — no multi-recipient / preferences.
+- **No in-Worker `Cf-Access-Jwt-Assertion` validation** — fine for workers.dev;
+  add if a custom domain is introduced (the `aud`/JWKs are in the infra table).
+
 ### Future enhancements
 
 - **Source-prioritized scoring** when budget is tight (e.g., score
@@ -319,10 +338,13 @@ Verified 2026-05-27. Sized against:
 - Workers AI: **10 000 Neurons/UTC day**. Llama 3.1 8B ≈ 200/call → ~50 scorings/day.
 - Worker CPU: **10 ms per invocation** (I/O wait excluded).
 - Subrequests: **50 per invocation**. M2b worst case ≈ 20.
-- Cron triggers: **5/account**, ≤ 15 min wall clock. M1+M2a+M2b use 2.
+- Cron triggers: **5/account**, ≤ 15 min wall clock. **3 used** (fetch/score/digest).
 - D1: 500 MB DB; ~5 M row-reads & 100 k row-writes/day.
 - Queues / Browser Rendering: paid plan only.
-- Email send: not free on CF → M3 uses Resend.
+- Email send: not free on CF (Cloudflare Email Service = paid Workers plan) →
+  M3 uses **Resend** free tier (3000/mo, 100/day; test sender `onboarding@resend.dev`
+  delivers only to the Resend-account email — exactly our single recipient).
+- Cloudflare Access (Zero Trust): free up to 50 users → M3 URL protection.
 
 ---
 
@@ -330,19 +352,19 @@ Verified 2026-05-27. Sized against:
 
 Paste something like:
 
-> Resuming missions-free. Read `docs/HANDOFF.md` for context. M1 + M2a +
-> M2b are shipped to `main` and the worker is deployed and running at
-> `https://missions-free.jeremn-code.workers.dev`. I want to start \<watch
-> first-24h / tune profile / M2c / M3 / a specific carry-forward fix>.
+> Resuming missions-free. Read `docs/HANDOFF.md`. M1+M2a+M2b+M3 are shipped to
+> `main`, the worker is deployed at `https://missions-free.jeremn-code.workers.dev`
+> (behind Cloudflare Access), digest email + fetch fix are live. I want to start
+> \<raise digest volume / tune profile / revive Reddit / a carry-forward fix>.
 
-From there, brainstorm the goal (use `superpowers:brainstorming`), write a
-spec (use `superpowers:writing-plans`), then dispatch implementers per the
-M2a/M2b pattern (`superpowers:subagent-driven-development`).
+From there, brainstorm the goal (`superpowers:brainstorming`), write spec+plan
+(`superpowers:writing-plans`), then execute (`superpowers:subagent-driven-development`).
 
-If just monitoring the live deploy:
-
-```bash
-curl https://missions-free.jeremn-code.workers.dev/api/stats   | jq
-curl https://missions-free.jeremn-code.workers.dev/api/runs    | jq '.runs[] | {tick, stats: .stats | fromjson}'
-curl https://missions-free.jeremn-code.workers.dev/api/missions | jq '.missions[0:5] | .[] | {score, title, reason}'
-```
+**Heads-up for whoever resumes:**
+- `npm test` needs `wrangler login` + network (sandbox-disabled) — see the memory
+  note. Don't mistake the pool's remote-session failure for a code bug.
+- The live API is **Access-gated** — anon `curl /api/*` returns 302. Use a browser
+  (PIN login) or `wrangler tail` to inspect live data.
+- Don't commit to `main` unprompted — branch first (user rule).
+- The single highest-leverage next move is **digest volume** (M2c) — start by
+  broadening `profile.skills` in `src/config.ts`.
