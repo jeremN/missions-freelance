@@ -4,6 +4,7 @@ import { insertCandidates } from "../../src/store/db";
 import {
   getMissions,
   getMissionsForCandidate,
+  getTopUnnotifiedMissions,
   getUnnotifiedMissions,
   markNotified,
   upsertMission,
@@ -211,6 +212,37 @@ describe("store/missions — digest selection", () => {
 
     const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
     expect(rows).toHaveLength(0);
+  });
+
+  it("getTopUnnotifiedMissions returns un-notified real missions by score, no floor", async () => {
+    await seedMission("hi", { score: 90 });
+    await seedMission("mid", { score: 40 });
+    await seedMission("low", { score: 5 });
+    await seedMission("fake", { score: 95, isRealMission: false });
+
+    const rows = await getTopUnnotifiedMissions(env.DB, { limit: 5 });
+    expect(rows.map((r) => r.score)).toEqual([90, 40, 5]); // fake excluded; 5 not floored
+  });
+
+  it("getTopUnnotifiedMissions respects the limit", async () => {
+    await seedMission("a", { score: 90 });
+    await seedMission("b", { score: 80 });
+    await seedMission("c", { score: 70 });
+
+    const rows = await getTopUnnotifiedMissions(env.DB, { limit: 2 });
+    expect(rows.map((r) => r.score)).toEqual([90, 80]);
+  });
+
+  it("getTopUnnotifiedMissions excludes already-notified missions", async () => {
+    const cid = await seedMission("hi", { score: 90 });
+    const id = (
+      await env.DB.prepare("SELECT id FROM missions WHERE candidate_id = ?")
+        .bind(cid)
+        .first<{ id: number }>()
+    )!.id;
+    await markNotified(env.DB, [id]);
+
+    expect(await getTopUnnotifiedMissions(env.DB, { limit: 5 })).toHaveLength(0);
   });
 
   it("markNotified flips exactly the given ids and is a no-op on []", async () => {

@@ -195,6 +195,29 @@ export async function getUnnotifiedMissions(
   return results.map(hydrate);
 }
 
+/**
+ * Top-N missions for the daily digest: never-notified, real, ranked by score.
+ * No score floor — the digest is a ranked shortlist, so the relatively-best
+ * surface even on a slow day. Tie-break by first_seen (oldest first) for stable
+ * ordering. Served by idx_missions_notified(notified, score).
+ */
+export async function getTopUnnotifiedMissions(
+  db: D1Database,
+  opts: { limit: number },
+): Promise<MissionRow[]> {
+  const limit = Math.min(opts.limit, 500);
+  const { results } = await db
+    .prepare(
+      `SELECT ${SELECT_COLS} FROM missions
+        WHERE notified = 0 AND is_real_mission = 1
+        ORDER BY score DESC, first_seen ASC
+        LIMIT ?`,
+    )
+    .bind(limit)
+    .all<MissionDbRow>();
+  return results.map(hydrate);
+}
+
 /** Mark the given mission ids as notified. No-op on an empty list. */
 export async function markNotified(db: D1Database, ids: number[]): Promise<void> {
   if (ids.length === 0) return;
