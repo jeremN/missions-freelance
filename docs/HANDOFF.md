@@ -27,9 +27,9 @@
    (ts/react/svelte/node/cloudflare/js). Candidates now *trickle* in. To get
    meaningful digest volume, M2c should add a Free-Work tech/keyword filter
    and/or pagination, broaden the profile skills, and/or add Hellowork.
-7. **PENDING manual step:** enable **Cloudflare Access** on the workers.dev
-   route (owner-email-only policy) — see "Access runbook" below. Until then the
-   dashboard + `/api/*` are publicly readable.
+7. **Cloudflare Access is LIVE** on the production workers.dev route (verified
+   2026-06-02: unauthenticated GET → 302 to `bold-bonus-d767.cloudflareaccess.com`).
+   Login = one-time PIN to the owner email. Crons unaffected (edge-only gate).
 
 ### Triage note (M3)
 Digest failures are logged to Workers logs (`console.error`), **not** serialized
@@ -54,17 +54,23 @@ successful send; they re-send next day).
 | Crons | `*/30` → `runFetchTick`, `*/15` → `runScoreTick`, `0 5 * * *` → `runDigestTick` |
 | Active sources | `free-work` only (reddit `enabled:false` — 403s unauthenticated) |
 | Migrations applied | `0001_init` + `0002_missions` (M3 added NO migration) |
-| Dashboard | https://missions-free.jeremn-code.workers.dev/ (⚠️ not yet behind Access) |
+| Access | **Cloudflare Access — owner email only** (team `bold-bonus-d767.cloudflareaccess.com`, aud `b6d5c44f…dc2c17`) |
+| Dashboard | https://missions-free.jeremn-code.workers.dev/ (behind Access — log in via one-time PIN) |
 
-### Access runbook (PENDING — owner dashboard step)
+### Access runbook (DONE 2026-06-02 — recorded for reference)
 
-To lock the URL to the owner (Cloudflare Access, free, works on workers.dev):
-1. Cloudflare dashboard → **Workers & Pages → `missions-free` → Settings →
-   Domains & Routes → `workers.dev` → Enable Cloudflare Access**.
-2. In the auto-created Zero Trust app, add policy **Allow / Include / Emails =
-   `jeremie.nehlil.freelance@proton.me`**; login method **One-time PIN**.
-3. Verify: `curl -sI .../` and `.../api/stats` → expect **302** to
-   `*.cloudflareaccess.com`. Cron is unaffected (server-side).
+How it was enabled (dashboard UI varies — this is the path that worked):
+1. Worker → **`Domains`** tab (NOT Settings → it's a top-level tab on this
+   account's UI) → **Domains & Routes**.
+2. On the **Worker URL · Production** row, click the **globe icon** → the access
+   dropdown (default **Public**) → switch to **Restricted** (Cloudflare Access).
+3. **Manage policy** → Allow / Include / Emails = `jeremie.nehlil.freelance@proton.me`,
+   login **One-time PIN**.
+4. Gotchas hit: needed an existing Zero Trust org; a stale app caused a
+   transient `destination belongs to another application` conflict; enforcement
+   took **~3 min** to propagate to the edge before GET → 302 appeared.
+5. Verify: `curl -sI https://missions-free.jeremn-code.workers.dev/` → **302**
+   to `bold-bonus-d767.cloudflareaccess.com`. Crons unaffected (server-side).
 
 To redeploy after code changes:
 
