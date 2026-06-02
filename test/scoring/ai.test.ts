@@ -46,6 +46,24 @@ function aiReturning(responses: AiResponse[]): AiLike {
 afterEach(() => vi.restoreAllMocks());
 
 describe("scoreCandidate", () => {
+  // Regression guard for the 100%-scoring-failure bug: the REAL Workers AI
+  // binding returns native-shape tool calls — flat `name` and an already-parsed
+  // `arguments` OBJECT — not the OpenAI `{ function: { name, arguments: <string> } }`
+  // shape the other mocks in this file assume. Captured from prod 2026-06-02.
+  it("parses the native Workers AI tool-call shape (flat name + object arguments)", async () => {
+    const ai = aiReturning([
+      {
+        response: null,
+        tool_calls: [{ name: "extract_mission", arguments: goodArgs }],
+        usage: { neurons: 200 },
+      } as unknown as AiResponse,
+    ]);
+    const out = await scoreCandidate(ai, candidate, profile);
+    expect(out.extraction.score).toBe(80);
+    expect(out.extraction.is_real_mission).toBe(true);
+    expect(out.retried).toBe(false);
+  });
+
   it("returns parsed extraction + neurons on a successful tool-call", async () => {
     const ai = aiReturning([
       {

@@ -14,9 +14,13 @@ export interface AiLike {
 }
 
 export interface AiResponse {
-  response?: string;
+  response?: string | null;
   tool_calls?: Array<{
-    function: { name: string; arguments: string };
+    // Native Workers AI shape: flat name + already-parsed arguments object.
+    name?: string;
+    arguments?: unknown;
+    // OpenAI-compatible shape: nested under `function`, arguments as JSON string.
+    function?: { name: string; arguments: string };
   }>;
   usage?: { neurons?: number };
 }
@@ -37,10 +41,21 @@ export class ScoringFailedError extends Error {
   }
 }
 
-function extractToolArgs(res: AiResponse): string | null {
+/**
+ * Pull the `extract_mission` arguments out of a Workers AI tool-call response.
+ *
+ * Workers AI returns the NATIVE shape — `{ name, arguments }` with `arguments`
+ * already parsed into an object. Some models / the OpenAI-compat path instead
+ * return `{ function: { name, arguments } }` with `arguments` as a JSON string.
+ * Accept both and return the raw arguments value (object or string); `callOnce`
+ * normalises it. Returns null when there is no `extract_mission` tool call.
+ */
+function extractToolArgs(res: AiResponse): unknown {
   const tc = res.tool_calls?.[0];
-  if (!tc || tc.function?.name !== "extract_mission") return null;
-  return tc.function.arguments;
+  if (!tc) return null;
+  const name = tc.name ?? tc.function?.name;
+  if (name !== "extract_mission") return null;
+  return tc.arguments ?? tc.function?.arguments ?? null;
 }
 
 function neuronsOf(res: AiResponse): number {
@@ -59,12 +74,16 @@ async function callOnce(
   const { messages } = buildScoringPrompt(c, profile, { strict });
   const res = await ai.run(AI_MODEL, { messages, tools: [EXTRACTION_TOOL] });
   const args = extractToolArgs(res);
-  if (!args) return { res, extraction: null, rawArgs: "" };
+  if (args == null) return { res, extraction: null, rawArgs: "" };
+  // Native shape gives an object; OpenAI-compat gives a JSON string. Keep a
+  // string form for diagnostics either way.
+  const rawArgs = typeof args === "string" ? args : JSON.stringify(args);
   try {
-    const extraction = parseExtraction(JSON.parse(args));
-    return { res, extraction, rawArgs: args };
+    const parsed = typeof args === "string" ? JSON.parse(args) : args;
+    const extraction = parseExtraction(parsed);
+    return { res, extraction, rawArgs };
   } catch {
-    return { res, extraction: null, rawArgs: args };
+    return { res, extraction: null, rawArgs };
   }
 }
 
