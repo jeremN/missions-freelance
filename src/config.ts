@@ -11,13 +11,21 @@ export const profile: Profile = {
 
 // ----- M2a (AI scoring) -----------------------------------------------------
 
-export const AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+export const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 /** Cloudflare Workers AI free allocation per UTC day. */
 export const DAILY_NEURON_BUDGET = 10_000;
 
-/** Conservative per-call estimate used to size each tick's batch. */
-export const NEURONS_PER_CALL_GUESS = 200;
+/**
+ * Per-call neuron estimate used ONLY to size each tick's batch up-front
+ * (`batchSize = min(MAX_BATCH, floor(budget / guess))`). A deliberately
+ * conservative placeholder for the 70B model — large enough that one tick can't
+ * blow the daily budget — pending the real `usage.neurons` observed in prod, at
+ * which point this constant should be tuned to match. Actual spend is tracked
+ * post-call from `usage.neurons` and feeds the NEXT tick's budget; it does not
+ * resize the current tick.
+ */
+export const NEURONS_PER_CALL_GUESS = 1500;
 
 /** Hard cap on AI calls per score-tick invocation (keeps subrequests safely < 50). */
 export const MAX_BATCH = 8;
