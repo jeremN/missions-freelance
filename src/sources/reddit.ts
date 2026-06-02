@@ -30,7 +30,10 @@ function validPost(
 
 export const redditAdapter: SourceAdapter = {
   id: "reddit",
-  enabled: true,
+  // Disabled 2026-06-02: Reddit now hard-403s unauthenticated `.json` access
+  // (verified from both datacenter and residential IPs). The parser below is
+  // kept and unit-tested for easy revival once OAuth (oauth.reddit.com) is added.
+  enabled: false,
 
   async fetch(ctx: AdapterCtx): Promise<AdapterRun> {
     const res = await ctx.fetchJson<RedditListing>(FEED_URL, {
