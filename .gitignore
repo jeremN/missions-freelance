@@ -6,3 +6,8 @@ dist/
 .env
 *.log
 .DS_Store
+.playwright-mcp/
+
+# Superpowers workflow artifacts (specs/plans) are local-only design scratch.
+# Durable decisions belong in committed ADRs (e.g. docs/adr/), not here.
+docs/superpowers/
