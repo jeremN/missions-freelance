@@ -16,7 +16,7 @@ import type { AdapterCtx, AdapterRun, RawMission, SourceAdapter } from "./types"
 const FEED_URL =
   "https://www.free-work.com/api/job_postings?contracts=contractor";
 
-// Loose types: the API uses Hydra JSON-LD; validate per-item rather than trusting the shape.
+// Loose types: validate per-item rather than trusting the shape.
 interface FreeWorkItem {
   id?: number;
   title?: string;
@@ -26,8 +26,17 @@ interface FreeWorkItem {
   contracts?: string[];
 }
 
-interface FreeWorkResponse {
-  "hydra:member"?: Array<FreeWorkItem | null | undefined>;
+type FreeWorkItems = Array<FreeWorkItem | null | undefined>;
+
+// SHAPE CHANGE (2026-06-02): the endpoint now returns a bare JSON array of
+// items. It previously returned a Hydra JSON-LD envelope ({ "hydra:member": [...] }).
+// We accept BOTH so a revert on their side can't silently re-break us.
+type FreeWorkResponse = FreeWorkItems | { "hydra:member"?: FreeWorkItems };
+
+/** Pull the item list out of whichever response shape Free-Work returns. */
+function membersOf(data: FreeWorkResponse): FreeWorkItems {
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data["hydra:member"]) ? data["hydra:member"] : [];
 }
 
 function validItem(
@@ -57,11 +66,7 @@ export const freeWorkAdapter: SourceAdapter = {
       return { missions: [] };
     }
 
-    const members = Array.isArray(res.data["hydra:member"])
-      ? res.data["hydra:member"]
-      : [];
-
-    const missions: RawMission[] = members.filter(validItem).map((item) => ({
+    const missions: RawMission[] = membersOf(res.data).filter(validItem).map((item) => ({
       source: "free-work",
       externalId: String(item.id),
       url: `https://www.free-work.com/fr/tech-it/jobs/${encodeURIComponent(item.slug)}`,

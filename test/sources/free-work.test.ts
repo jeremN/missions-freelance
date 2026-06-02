@@ -60,6 +60,28 @@ describe("freeWorkAdapter", () => {
     expect(run.missions).toEqual([]);
   });
 
+  it("parses a bare top-level array (2026-06-02 API shape) and drops malformed items", async () => {
+    const run = await freeWorkAdapter.fetch(
+      ctxWith({
+        data: [
+          {
+            id: 1,
+            title: "Senior React",
+            slug: "senior-react",
+            description: "x",
+            publishedAt: "2026-06-01T00:00:00Z",
+          },
+          { description: "no id/slug" }, // dropped
+          { id: 2, title: "No slug" }, // dropped
+          null, // dropped
+        ],
+        notModified: false,
+      }),
+    );
+    expect(run.missions.map((m) => m.externalId)).toEqual(["1"]);
+    expect(run.missions[0].url).toContain("senior-react");
+  });
+
   it("passes the configured URL with the user's etag to fetchJson", async () => {
     const fetchJson = vi.fn(async () => ({
       data: freeWorkFixture,
