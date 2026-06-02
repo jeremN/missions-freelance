@@ -1,9 +1,9 @@
 import type { Env } from "../types/env";
-import { DIGEST_MAX_ITEMS, DIGEST_MIN_SCORE } from "../config";
+import { DIGEST_TOP_N } from "../config";
 import { renderDigest } from "../email/digest";
 import { createResendClient, type EmailLike } from "../email/resend";
 import { recordRun } from "../store/db";
-import { getUnnotifiedMissions, markNotified } from "../store/missions";
+import { getTopUnnotifiedMissions, markNotified } from "../store/missions";
 
 export interface DigestTickOptions {
   email?: EmailLike;
@@ -17,7 +17,7 @@ export interface DigestTickResult {
 }
 
 /**
- * Daily digest: select un-notified real missions ≥ DIGEST_MIN_SCORE, email them,
+ * Daily digest: select the top-N un-notified real missions by score, email them,
  * then mark them notified (send-then-mark = at-least-once). Never throws to the
  * scheduler; failures land in the `runs` audit trail and roll to the next day.
  */
@@ -34,10 +34,7 @@ export async function runDigestTick(
   let skipped = false;
 
   try {
-    const rows = await getUnnotifiedMissions(env.DB, {
-      minScore: DIGEST_MIN_SCORE,
-      limit: DIGEST_MAX_ITEMS,
-    });
+    const rows = await getTopUnnotifiedMissions(env.DB, { limit: DIGEST_TOP_N });
     candidates = rows.length;
 
     if (candidates === 0) {
@@ -45,10 +42,7 @@ export async function runDigestTick(
       return { candidates: 0, sent: false, skipped: true };
     }
 
-    const { subject, html, text } = renderDigest(rows, {
-      now,
-      minScore: DIGEST_MIN_SCORE,
-    });
+    const { subject, html, text } = renderDigest(rows, { now });
     await email.send({ from: env.DIGEST_FROM, to: env.DIGEST_TO, subject, html, text });
     sent = true;
     await markNotified(env.DB, rows.map((r) => r.id));

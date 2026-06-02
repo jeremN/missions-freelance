@@ -5,7 +5,6 @@ import {
   getMissions,
   getMissionsForCandidate,
   getTopUnnotifiedMissions,
-  getUnnotifiedMissions,
   markNotified,
   upsertMission,
 } from "../../src/store/missions";
@@ -190,30 +189,6 @@ describe("store/missions — digest selection", () => {
     return candidateId;
   }
 
-  it("returns only un-notified, real missions at/above minScore, score desc", async () => {
-    await seedMission("hi", { score: 90 });
-    await seedMission("mid", { score: 72 });
-    await seedMission("edge", { score: 70 }); // exactly at threshold — >= is inclusive
-    await seedMission("low", { score: 50 }); // below threshold
-    await seedMission("fake", { score: 95, isRealMission: false }); // not a real mission
-
-    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
-    expect(rows.map((r) => r.score)).toEqual([90, 72, 70]);
-  });
-
-  it("excludes already-notified missions", async () => {
-    const cid = await seedMission("hi", { score: 90 });
-    const id = (
-      await env.DB.prepare("SELECT id FROM missions WHERE candidate_id = ?")
-        .bind(cid)
-        .first<{ id: number }>()
-    )!.id;
-    await markNotified(env.DB, [id]);
-
-    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
-    expect(rows).toHaveLength(0);
-  });
-
   it("getTopUnnotifiedMissions returns un-notified real missions by score, no floor", async () => {
     await seedMission("hi", { score: 90 });
     await seedMission("mid", { score: 40 });
@@ -257,10 +232,10 @@ describe("store/missions — digest selection", () => {
     const idA = await idOf(a);
 
     await markNotified(env.DB, []); // no-op
-    expect(await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 })).toHaveLength(2);
+    expect(await getTopUnnotifiedMissions(env.DB, { limit: 20 })).toHaveLength(2);
 
     await markNotified(env.DB, [idA]);
-    const rows = await getUnnotifiedMissions(env.DB, { minScore: 70, limit: 20 });
+    const rows = await getTopUnnotifiedMissions(env.DB, { limit: 20 });
     expect(rows).toHaveLength(1);
     expect(rows[0].candidateId).toBe(b); // only b remains un-notified
     expect(rows[0].score).toBe(85);
