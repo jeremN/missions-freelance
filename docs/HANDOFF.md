@@ -1,6 +1,6 @@
 # missions-free — Handoff
 
-**Last update:** 2026-05-29 (post-M2b, post-deploy)
+**Last update:** 2026-06-02 (post-M3 digest email + fetch-pipeline fix)
 **Working branch:** `main`
 **Where to look next:** depends on the goal — see "Common entry points" below.
 
@@ -8,17 +8,35 @@
 
 ## TL;DR for a fresh session
 
-1. **M1 + M2a + M2b are all shipped to `main`**, **86 tests pass**, working tree clean.
+1. **M1 + M2a + M2b + M3 are all shipped to `main`**, **106 tests pass**, working tree clean.
 2. **The Worker is deployed and running on Cloudflare** at
-   `https://missions-free.jeremn-code.workers.dev` — both crons live (`*/30`
-   fetch, `*/15` score). First firings produce live data without any action.
+   `https://missions-free.jeremn-code.workers.dev` — **three** crons live
+   (`*/30` fetch, `*/15` score, `0 5 * * *` digest email).
 3. Code is on GitHub at `git@github.com:jeremN/missions-freelance.git`
    (remote `origin`, `main` tracks).
-4. **No active milestone is in flight.** The next two natural milestones:
-   - **M2c** — resolve WTTJ + add more sources (Hellowork, Telegram). See
-     "M2c decision point" below for the open WTTJ-Algolia question.
-   - **M3** — daily digest email (Resend) + Cloudflare Access in front of
-     the dashboard.
+4. **M3 (daily digest email) shipped 2026-06-02** — Resend, sends top missions
+   (score≥70, real) once daily; idempotent via the `notified` column;
+   `GET /api/digest/preview` renders the would-be email read-only. Secrets set:
+   `RESEND_API_KEY`, `DIGEST_TO`, `DIGEST_FROM` (= `onboarding@resend.dev`).
+5. **Fetch pipeline fixed 2026-06-02** — Free-Work changed to a bare-array
+   response (was silently parsing 0); Reddit now hard-403s unauthenticated and
+   was **disabled** (`enabled:false`, code kept). Before the fix the worker was
+   producing **0 candidates** despite 500+ runs.
+6. **⚠️ TOP OPEN ITEM — digest volume.** Free-Work page-1 (newest 30, all
+   contracts) yields only ~1/30 that pass the prefilter's narrow skill set
+   (ts/react/svelte/node/cloudflare/js). Candidates now *trickle* in. To get
+   meaningful digest volume, M2c should add a Free-Work tech/keyword filter
+   and/or pagination, broaden the profile skills, and/or add Hellowork.
+7. **PENDING manual step:** enable **Cloudflare Access** on the workers.dev
+   route (owner-email-only policy) — see "Access runbook" below. Until then the
+   dashboard + `/api/*` are publicly readable.
+
+### Triage note (M3)
+Digest failures are logged to Workers logs (`console.error`), **not** serialized
+into `runs.stats`. When a `digest` run shows `sent:false` with `candidates>0`,
+check `wrangler tail` / the logs for the cause (Resend error). `sent:true` with
+`notified` still 0 on some rows = at-least-once (markNotified threw after a
+successful send; they re-send next day).
 
 ---
 
@@ -27,14 +45,26 @@
 | | |
 |---|---|
 | Worker URL | `https://missions-free.jeremn-code.workers.dev` |
-| Worker version ID | `a1c9597d-079c-412b-95ff-2abb77fa9fe6` (2026-05-29) |
+| Worker version ID | `b462558e-36b7-4778-b484-60d60465951d` (2026-06-02, post-fetch-fix) |
 | D1 database | `missions-free` |
 | D1 UUID | `39254e3d-09ea-4e82-96f5-91096e08aff4` |
 | D1 region | WEUR |
 | Bindings | `DB` (D1) + `AI` (Workers AI) + `ASSETS` (public/) |
-| Crons | `*/30 * * * *` → `runFetchTick`, `*/15 * * * *` → `runScoreTick` |
-| Migrations applied | `0001_init` + `0002_missions` |
-| Dashboard | https://missions-free.jeremn-code.workers.dev/ |
+| Secrets | `RESEND_API_KEY`, `DIGEST_TO`, `DIGEST_FROM` (= `onboarding@resend.dev`) |
+| Crons | `*/30` → `runFetchTick`, `*/15` → `runScoreTick`, `0 5 * * *` → `runDigestTick` |
+| Active sources | `free-work` only (reddit `enabled:false` — 403s unauthenticated) |
+| Migrations applied | `0001_init` + `0002_missions` (M3 added NO migration) |
+| Dashboard | https://missions-free.jeremn-code.workers.dev/ (⚠️ not yet behind Access) |
+
+### Access runbook (PENDING — owner dashboard step)
+
+To lock the URL to the owner (Cloudflare Access, free, works on workers.dev):
+1. Cloudflare dashboard → **Workers & Pages → `missions-free` → Settings →
+   Domains & Routes → `workers.dev` → Enable Cloudflare Access**.
+2. In the auto-created Zero Trust app, add policy **Allow / Include / Emails =
+   `jeremie.nehlil.freelance@proton.me`**; login method **One-time PIN**.
+3. Verify: `curl -sI .../` and `.../api/stats` → expect **302** to
+   `*.cloudflareaccess.com`. Cron is unaffected (server-side).
 
 To redeploy after code changes:
 
