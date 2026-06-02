@@ -136,4 +136,20 @@ describe("runScoreTick", () => {
     expect(stats.neurons).toBe(222);
     expect(stats.scored).toBe(1);
   });
+
+  it("stops mid-batch once the tick has spent the remaining budget", async () => {
+    await seedPending(6);
+    // Each successful score reports 5000 real neurons — far above the 1500 guess —
+    // so the batch must stop after 2 (2 × 5000 = 10000 = daily budget), leaving the
+    // rest pending. Without the mid-batch guard, all 6 would be scored.
+    const ai = aiSequence([toolResp(goodArgs(80), 5000)]);
+
+    const result = await runScoreTick(env, { ai, now: NOW });
+
+    expect(result.scored).toBe(2);
+    const pending = await env.DB.prepare(
+      "SELECT count(*) AS c FROM candidates WHERE status = 'pending'",
+    ).first<{ c: number }>();
+    expect(pending!.c).toBe(4); // remaining roll to the next tick
+  });
 });

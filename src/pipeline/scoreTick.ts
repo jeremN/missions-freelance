@@ -78,6 +78,12 @@ export async function runScoreTick(
       .all<PendingRow>();
 
     for (const c of pending) {
+      // Mid-batch budget guard: batchSize is sized from an *estimate*
+      // (NEURONS_PER_CALL_GUESS). If a real call costs far more than the guess, this
+      // stops the tick once it has spent the day's remaining budget, instead of
+      // overspending the daily allocation by a large multiple in a single tick.
+      // Remaining candidates stay pending and are picked up next tick.
+      if (neurons >= budget) break;
       try {
         const { extraction, neurons: n } = await scoreCandidate(ai, c, profile);
         neurons += n;
