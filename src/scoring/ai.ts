@@ -13,15 +13,21 @@ export interface AiLike {
   ): Promise<AiResponse>;
 }
 
+interface ToolCall {
+  // Native Workers AI shape: flat name + already-parsed arguments object.
+  name?: string;
+  arguments?: unknown;
+  // OpenAI-compatible shape: nested under `function`, arguments as JSON string.
+  function?: { name: string; arguments: string };
+}
+
 export interface AiResponse {
   response?: string | null;
-  tool_calls?: Array<{
-    // Native Workers AI shape: flat name + already-parsed arguments object.
-    name?: string;
-    arguments?: unknown;
-    // OpenAI-compatible shape: nested under `function`, arguments as JSON string.
-    function?: { name: string; arguments: string };
-  }>;
+  // Native Workers AI envelope: tool calls at the top level.
+  tool_calls?: ToolCall[];
+  // OpenAI Chat Completions envelope (e.g. Gemma 4, GLM): tool calls nested
+  // under choices[].message.
+  choices?: Array<{ message?: { tool_calls?: ToolCall[] } }>;
   usage?: { neurons?: number };
 }
 
@@ -42,16 +48,17 @@ export class ScoringFailedError extends Error {
 }
 
 /**
- * Pull the `extract_mission` arguments out of a Workers AI tool-call response.
- *
- * Workers AI returns the NATIVE shape — `{ name, arguments }` with `arguments`
- * already parsed into an object. Some models / the OpenAI-compat path instead
- * return `{ function: { name, arguments } }` with `arguments` as a JSON string.
- * Accept both and return the raw arguments value (object or string); `callOnce`
+ * Pull the `extract_mission` arguments out of a Workers AI tool-call response,
+ * across the response shapes Workers AI models actually return:
+ *  - native envelope: tool calls at `res.tool_calls` (llama 8B/70B);
+ *  - chat-completions envelope: `res.choices[0].message.tool_calls` (Gemma 4, GLM);
+ * and within a tool call, either the native `{ name, arguments }` (arguments an
+ * object) or the OpenAI `{ function: { name, arguments } }` (arguments a JSON
+ * string). Returns the raw arguments value (object or string); `callOnce`
  * normalises it. Returns null when there is no `extract_mission` tool call.
  */
 function extractToolArgs(res: AiResponse): unknown {
-  const tc = res.tool_calls?.[0];
+  const tc = res.tool_calls?.[0] ?? res.choices?.[0]?.message?.tool_calls?.[0];
   if (!tc) return null;
   const name = tc.name ?? tc.function?.name;
   if (name !== "extract_mission") return null;

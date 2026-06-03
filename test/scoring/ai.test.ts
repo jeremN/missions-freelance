@@ -64,6 +64,31 @@ describe("scoreCandidate", () => {
     expect(out.retried).toBe(false);
   });
 
+  // Regression guard for the OpenAI Chat Completions envelope: Gemma 4 / GLM
+  // return tool calls under `choices[0].message.tool_calls`, not top-level.
+  // Captured from prod 2026-06-03.
+  it("parses the chat-completions envelope (choices[].message.tool_calls)", async () => {
+    const ai = aiReturning([
+      {
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              content: null,
+              tool_calls: [
+                { function: { name: "extract_mission", arguments: JSON.stringify(goodArgs) } },
+              ],
+            },
+          },
+        ],
+        usage: { neurons: 22 },
+      } as unknown as AiResponse,
+    ]);
+    const out = await scoreCandidate(ai, candidate, profile);
+    expect(out.extraction.score).toBe(80);
+    expect(out.retried).toBe(false);
+  });
+
   it("returns parsed extraction + neurons on a successful tool-call", async () => {
     const ai = aiReturning([
       {
