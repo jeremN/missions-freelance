@@ -1,8 +1,44 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-03 (scoring fix + Gemma-4 rework now **MERGED to main** via PR #2; tsc/test-type hygiene fixed on `fix/tsc-types-hygiene`)
-**Working branch:** `fix/tsc-types-hygiene` (off `main`; tsc now 0 errors — see TL;DR #8). The scoring work is already in `main`.
+**Last update:** 2026-06-03 (3 threads built this session: tsc hygiene, digest volume, email ingest — all on a stacked branch chain, NOT merged)
+**Working branch:** `feat/email-ingest` (tip of the stack). **Scoring work is in `main` (PR #2 merged).**
 **Where to look next:** depends on the goal — see "Common entry points" below.
+
+---
+
+## ⚡ Session 2026-06-03 (cont.) — 3 threads done, stacked, NOT merged/pushed
+
+All three were built test-first with two-stage review; each is `tsc --noEmit` 0 + full suite green
+(**138 tests**). They are **stacked branches off `main`** (each needs the prior's clean tsc baseline):
+
+```
+main ─ fix/tsc-types-hygiene ─ feat/digest-volume ─ feat/email-ingest   (HEAD)
+```
+
+1. **Thread 3 — tsc/test-type hygiene** (`fix/tsc-types-hygiene`, 3 commits): tsc 18→0. See TL;DR #8.
+2. **Thread 2 — digest volume** (`feat/digest-volume`, 3 commits):
+   - **Codeur.com RSS adapter** (`src/sources/codeur.ts`) — FR freelance-project feed, registered+enabled.
+     (Recon killed Hellowork-as-RSS: **Hellowork has no public RSS/JSON, only brittle HTML scraping** →
+     route it via the email path instead. Codeur IS a clean public RSS.)
+   - **Prefilter matcher fix** (`src/matching/prefilter.ts`): skills now match at a **left word boundary**
+     (`react`→`reactjs` still works; short tokens like `ia` no longer hit "so**cia**l"). Enabled safe broadening.
+   - **Broadened `profile.skills`** (`src/config.ts`): +fullstack/frontend/next/nuxt/backend/remix/astro/
+     sveltekit/ia/llm/genai/intelligence artificielle. (Accepted-noise: `ia`→"iam", `astro`→"astronaute" —
+     negligible on Codeur, but **revisit the matcher if scope broadens** — LinkedIn does broaden it.)
+3. **Thread 1 — source-agnostic inbound email ingest** (`feat/email-ingest`, 5 commits): M4.
+   - `email()` handler in `src/index.ts` → `src/email/inbound.ts` → dispatch by **`message.from`** (envelope,
+     anti-spoof allow-list) → per-source parser → `selectCandidates` (extracted, shared w/ fetchTick) →
+     `insertCandidates` → records an `email` run.
+   - **LinkedIn parser** (`src/sources/email/linkedin.ts`): best-effort, regex `/jobs/view/{id}` over the
+     plain-text part. **Refine with a real LinkedIn alert sample** (the chosen "best-effort now" path).
+   - Dep: `postal-mime`. Security-reviewed (spoof tricks rejected, ReDoS-safe, handler never throws).
+   - **Infra is a runbook, not wired:** `docs/EMAIL-INGEST-RUNBOOK.md` — enable Email Routing on a CF
+     **domain** (can't receive on workers.dev), route an address → this Worker, Proton-forward LinkedIn
+     alerts there, create the LinkedIn "Contract" daily alert.
+
+**⚠️ First actions on resume:** (a) decide PR/merge order for the stack (tsc-hygiene → digest-volume →
+email-ingest); nothing is pushed. (b) For email ingest to actually receive mail, do the runbook (needs a
+CF domain). (c) Specs/plans for threads 2 & 1 are in the git-ignored `docs/superpowers/{specs,plans}/2026-06-03-*`.
 
 ---
 
@@ -180,6 +216,10 @@ What to keep an eye on:
 ---
 
 ## Open threads for next session (decided 2026-06-03)
+
+> **STATUS: #1 (LinkedIn email-ingest) and #2 (digest volume) are now BUILT** — see
+> "Session 2026-06-03 (cont.)" at the top. The notes below are the original research/rationale,
+> kept for context. #2's Free-Work pagination + Reddit-OAuth sub-options remain unbuilt.
 
 The scoring pipeline now WORKS and ranks well. Pick up any of these.
 

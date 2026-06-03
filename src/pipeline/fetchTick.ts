@@ -1,6 +1,6 @@
 import type { Env } from "../types/env";
 import type { PrefilterProfile } from "../matching/prefilter";
-import { prefilter } from "../matching/prefilter";
+import { selectCandidates } from "./select";
 import { createFetchClients } from "../sources/http";
 import { enabledAdapters } from "../sources/registry";
 import type { SourceAdapter } from "../sources/types";
@@ -45,12 +45,7 @@ export async function runFetchTick(
         const run = await adapter.fetch({ state: prior, fetchJson, fetchText });
         fetched += run.missions.length;
 
-        for (const m of run.missions) {
-          const pf = prefilter(m, profile);
-          if (pf.passed) {
-            survivors.push({ ...m, tjm: pf.tjm, lowball: pf.lowball });
-          }
-        }
+        survivors.push(...selectCandidates(run.missions, profile));
 
         // Merge: prefer adapter's new state, fall back to prior, so a 304
         // (no `run.state`) preserves the existing etag instead of clobbering it.

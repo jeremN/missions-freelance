@@ -3,8 +3,13 @@ import { handleApi } from "./http/api";
 import { runFetchTick } from "./pipeline/fetchTick";
 import { runScoreTick } from "./pipeline/scoreTick";
 import { runDigestTick } from "./pipeline/digestTick";
+import { handleInboundEmail } from "./email/inbound";
 
 export default {
+  async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+    await handleInboundEmail(message, env);
+  },
+
   async scheduled(
     controller: ScheduledController,
     env: Env,
