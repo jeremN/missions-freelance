@@ -32,7 +32,7 @@ describe("renderDigest", () => {
   it("subject reflects the count and the top score", () => {
     const { subject } = renderDigest(
       [mission({ id: 1, score: 92 }), mission({ id: 2, score: 71 })],
-      { now: NOW, minScore: 70 },
+      { now: NOW },
     );
     expect(subject).toBe("missions-free — 2 new (top 92)");
   });
@@ -40,7 +40,6 @@ describe("renderDigest", () => {
   it("html contains each mission's title, score, and link", () => {
     const { html, text } = renderDigest([mission({ score: 88 })], {
       now: NOW,
-      minScore: 70,
     });
     expect(html).toContain("Senior React mission");
     expect(html).toContain("[88]");
@@ -53,7 +52,7 @@ describe("renderDigest", () => {
   });
 
   it("handles an empty selection without crashing", () => {
-    const { subject, html, text } = renderDigest([], { now: NOW, minScore: 70 });
+    const { subject, html, text } = renderDigest([], { now: NOW });
     expect(subject).toBe("missions-free — nothing new");
     expect(html).toContain("No new missions");
     expect(text).toContain("No new missions");
@@ -68,7 +67,7 @@ describe("renderDigest", () => {
           reason: 'a & b "c"',
         }),
       ],
-      { now: NOW, minScore: 70 },
+      { now: NOW },
     );
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");

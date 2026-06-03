@@ -1,8 +1,8 @@
 import type { Env } from "../types/env";
 import { getCandidates, getRecentRuns, getStats } from "../store/db";
-import { getMissions, getUnnotifiedMissions } from "../store/missions";
+import { getMissions, getTopUnnotifiedMissions } from "../store/missions";
 import { renderDigest } from "../email/digest";
-import { DIGEST_MAX_ITEMS, DIGEST_MIN_SCORE } from "../config";
+import { DIGEST_TOP_N } from "../config";
 
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
@@ -63,14 +63,8 @@ export async function handleApi(
         return json({ missions });
       }
       case "/api/digest/preview": {
-        const missions = await getUnnotifiedMissions(env.DB, {
-          minScore: DIGEST_MIN_SCORE,
-          limit: DIGEST_MAX_ITEMS,
-        });
-        const { html } = renderDigest(missions, {
-          now: new Date(),
-          minScore: DIGEST_MIN_SCORE,
-        });
+        const missions = await getTopUnnotifiedMissions(env.DB, { limit: DIGEST_TOP_N });
+        const { html } = renderDigest(missions, { now: new Date() });
         return new Response(html, {
           status: 200,
           headers: {

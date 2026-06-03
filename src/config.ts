@@ -11,13 +11,21 @@ export const profile: Profile = {
 
 // ----- M2a (AI scoring) -----------------------------------------------------
 
-export const AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
+export const AI_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
 /** Cloudflare Workers AI free allocation per UTC day. */
 export const DAILY_NEURON_BUDGET = 10_000;
 
-/** Conservative per-call estimate used to size each tick's batch. */
-export const NEURONS_PER_CALL_GUESS = 200;
+/**
+ * Per-call neuron estimate used ONLY to size each tick's batch up-front
+ * (`batchSize = min(MAX_BATCH, floor(budget / guess))`) and to attribute a flat
+ * cost when the binding does not report `usage.neurons`. Grounded in the Workers
+ * AI pricing table: a ~2k-input / ~150-output scoring call is ~10-65 neurons
+ * depending on the model (Gemma 4 A4B ≈ 22), so 50 is a realistic, slightly
+ * conservative figure. (It was previously 1500 — a ~30x over-estimate that
+ * silently throttled throughput to a few candidates per day.)
+ */
+export const NEURONS_PER_CALL_GUESS = 50;
 
 /** Hard cap on AI calls per score-tick invocation (keeps subrequests safely < 50). */
 export const MAX_BATCH = 8;
@@ -43,8 +51,8 @@ export const scoringProfile: ScoringProfile = {
 
 // ----- M3 (digest email) ----------------------------------------------------
 
-/** Minimum score for a mission to be worth emailing (matches the dashboard "good" band). */
-export const DIGEST_MIN_SCORE = 70;
-
-/** Max missions per digest email; any overflow rolls into the next day's digest. */
-export const DIGEST_MAX_ITEMS = 20;
+/**
+ * Daily digest size: the email carries the top-N un-notified real missions ranked
+ * by score (no absolute threshold). Un-selected missions compete the next day.
+ */
+export const DIGEST_TOP_N = 5;

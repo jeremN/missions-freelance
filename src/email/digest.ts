@@ -3,7 +3,6 @@ import { escapeHtml, safeUrl } from "./html";
 
 export interface DigestOpts {
   now: Date;
-  minScore: number;
 }
 
 export interface RenderedDigest {
@@ -30,8 +29,8 @@ export function renderDigest(
   if (missions.length === 0) {
     return {
       subject: "missions-free — nothing new",
-      html: "<p>No new missions above the threshold.</p>",
-      text: "No new missions above the threshold.",
+      html: "<p>No new missions to show.</p>",
+      text: "No new missions to show.",
     };
   }
 

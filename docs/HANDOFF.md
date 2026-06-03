@@ -1,42 +1,56 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-02 (post-M3 digest email + fetch-pipeline fix)
-**Working branch:** `main`
+**Last update:** 2026-06-03 (scoring 100%-failure fix + quality rework: Gemma 4, top-N digest)
+**Working branch:** `fix/scoring-toolcall-shape` (10 commits ahead of `main`; **deployed but NOT merged/PR'd**)
 **Where to look next:** depends on the goal — see "Common entry points" below.
 
 ---
 
 ## TL;DR for a fresh session
 
-1. **M1 + M2a + M2b + M3 are all shipped to `main`**, **106 tests pass**, working tree clean.
-2. **The Worker is deployed and running on Cloudflare** at
-   `https://missions-free.jeremn-code.workers.dev` — **three** crons live
-   (`*/30` fetch, `*/15` score, `0 5 * * *` digest email).
-3. Code is on GitHub at `git@github.com:jeremN/missions-freelance.git`
-   (remote `origin`, `main` tracks).
-4. **M3 (daily digest email) shipped 2026-06-02** — Resend, sends top missions
-   (score≥70, real) once daily; idempotent via the `notified` column;
-   `GET /api/digest/preview` renders the would-be email read-only. Secrets set:
-   `RESEND_API_KEY`, `DIGEST_TO`, `DIGEST_FROM` (= `onboarding@resend.dev`).
-5. **Fetch pipeline fixed 2026-06-02** — Free-Work changed to a bare-array
-   response (was silently parsing 0); Reddit now hard-403s unauthenticated and
-   was **disabled** (`enabled:false`, code kept). Before the fix the worker was
-   producing **0 candidates** despite 500+ runs.
-6. **⚠️ TOP OPEN ITEM — digest volume.** Free-Work page-1 (newest 30, all
-   contracts) yields only ~1/30 that pass the prefilter's narrow skill set
-   (ts/react/svelte/node/cloudflare/js). Candidates now *trickle* in. To get
-   meaningful digest volume, M2c should add a Free-Work tech/keyword filter
-   and/or pagination, broaden the profile skills, and/or add Hellowork.
-7. **Cloudflare Access is LIVE** on the production workers.dev route (verified
-   2026-06-02: unauthenticated GET → 302 to `bold-bonus-d767.cloudflareaccess.com`).
-   Login = one-time PIN to the owner email. Crons unaffected (edge-only gate).
+1. **⚠️ AI scoring was 100% broken from M2a until 2026-06-03 — it never produced a
+   single real mission.** Root cause: a tool-call **response-shape** mismatch in
+   `src/scoring/ai.ts extractToolArgs`. 106+ tests passed because `ai.test.ts`
+   mocked the shape it then asserted. Now FIXED across **three** envelopes:
+   native (`res.tool_calls[0]`, llama 8B/70B), OpenAI-nested (`function.name`),
+   and **chat-completions** (`res.choices[0].message.tool_calls`, Gemma 4 / GLM).
+2. **Scoring quality reworked (2026-06-03).** Verified in prod: a well-ranked
+   spread with grounded reasons (Vue/Node 80/65 … COBOL 20 … ServiceNow/SOC 15/10).
+   Three legs:
+   - **Model → `@cf/google/gemma-4-26b-a4b-it`** (Gemma 4 26B A4B, MoE 4B-active).
+     8B *regurgitated* the prompt's few-shot (COBOL scored 80); 70B was
+     **unreliable + budget-hungry on the free tier**. Gemma scores **8/8, 0 fails**,
+     reliable, ~50 neurons/call. (GLM-4.7-Flash is the documented fallback.)
+   - **Prompt de-baited** (`src/scoring/prompt.ts`): separate `is_real_mission`
+     from the fit `score`, removed the copy-bait example, stack-fit dominant,
+     reasons must cite concrete details.
+   - **Neuron accounting fixed**: `NEURONS_PER_CALL_GUESS` 1500 → **50** (real cost
+     is ~10–65 neurons/call per the pricing table; the 1500 over-estimate silently
+     throttled throughput to ~1 mission/day and created a "phantom budget" that
+     deferred every tick — see [[missions-free-scoring-toolcall-shape]]). Plus a
+     **mid-batch budget guard** in `scoreTick`.
+3. **Digest is now a TOP-N ranked shortlist** (`DIGEST_TOP_N = 5`), not `score≥70`.
+   `getTopUnnotifiedMissions` (un-notified + real, ORDER BY score DESC). Old
+   `DIGEST_MIN_SCORE`/`DIGEST_MAX_ITEMS`/`getUnnotifiedMissions` removed.
+4. **Tests run FULLY OFFLINE now** — `vitest.config.ts` sets `remoteBindings:false`
+   (Cloudflare Access had broken the remote-AI pool session). **114 pass**, no
+   wrangler/network/sandbox needed.
+5. **⚠️ This is all on branch `fix/scoring-toolcall-shape`, deployed to prod but
+   NOT merged or PR'd.** 10 commits ahead of `main`. Decide PR/merge strategy.
+6. `docs/superpowers/` is now **git-ignored** (repo rule: superpowers scratch is
+   local-only; durable decisions go in an ADR). The rework spec+plan live there
+   locally (`2026-06-0{2,3}-…scoring-quality…`).
+7. **Cloudflare Access still LIVE** on the workers.dev route (anon GET → 302).
+   Crons unaffected (edge-only gate). Inspect live data via browser PIN login,
+   `wrangler tail`, or `wrangler d1 execute … --remote`.
 
-### Triage note (M3)
-Digest failures are logged to Workers logs (`console.error`), **not** serialized
-into `runs.stats`. When a `digest` run shows `sent:false` with `candidates>0`,
-check `wrangler tail` / the logs for the cause (Resend error). `sent:true` with
-`notified` still 0 on some rows = at-least-once (markNotified threw after a
-successful send; they re-send next day).
+### Triage note (scoring)
+Score failures log to Workers stderr (`console.error("score-failed:", …, rawSnippet)`).
+A `score` run with `failed>0, neurons=N×100` = hard `ScoringFailedError` (rawSnippet
+shows the unparseable response — that's how all 3 shape bugs were caught). `failed`
+with the candidate staying `pending` = transient (AI binding error) → retries next tick.
+The neuron value in `runs.stats` is the **guess (50)**-based estimate unless the model
+reports `usage.neurons` (Gemma does not), so it over/under-states real spend somewhat.
 
 ---
 
@@ -45,7 +59,8 @@ successful send; they re-send next day).
 | | |
 |---|---|
 | Worker URL | `https://missions-free.jeremn-code.workers.dev` |
-| Worker version ID | `b462558e-36b7-4778-b484-60d60465951d` (2026-06-02, post-fetch-fix) |
+| Worker version ID | `1e7fe776-1eae-467e-8fdc-83d5f552c71a` (2026-06-03, Gemma 4 + chat-completions parser) |
+| AI model | `@cf/google/gemma-4-26b-a4b-it` (`AI_MODEL` in `src/config.ts`) |
 | D1 database | `missions-free` |
 | D1 UUID | `39254e3d-09ea-4e82-96f5-91096e08aff4` |
 | D1 region | WEUR |

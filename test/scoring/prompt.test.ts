@@ -43,12 +43,33 @@ describe("buildScoringPrompt", () => {
     expect(messages[1].content).toContain(candidate.body);
   });
 
-  it("includes at least two few-shot anchors in the system prompt", () => {
+  it("separates is_real_mission from the fit score as independent judgments", () => {
     const { messages } = buildScoringPrompt(candidate, profile);
     const sys = messages[0].content;
-    // Anchors document what "score 80" and "score 20" look like.
-    expect(sys).toMatch(/score\s*[:=]?\s*80/i);
-    expect(sys).toMatch(/score\s*[:=]?\s*20/i);
+    expect(sys).toContain("is_real_mission");
+    expect(sys).toMatch(/independent/i);
+    expect(sys).toMatch(/score/i);
+  });
+
+  it("makes stack fit the dominant scoring factor and names off-stack as low", () => {
+    const { messages } = buildScoringPrompt(candidate, profile);
+    const sys = messages[0].content;
+    expect(sys).toMatch(/stack fit/i);
+    expect(sys).toMatch(/dominant/i);
+  });
+
+  it("does not contain the old copy-bait example answer", () => {
+    const { messages } = buildScoringPrompt(candidate, profile);
+    const sys = messages[0].content;
+    expect(sys).not.toContain("Stack match, in-range TJM, full remote, direct client");
+    expect(sys).not.toMatch(/score\s*[:=]\s*80\b/);
+  });
+
+  it("instructs the reason to cite concrete details from the post", () => {
+    const { messages } = buildScoringPrompt(candidate, profile);
+    const sys = messages[0].content;
+    expect(sys).toMatch(/reason/i);
+    expect(sys).toMatch(/concrete/i);
   });
 
   it("the strict retry variant appends a forcing note to the system message", () => {

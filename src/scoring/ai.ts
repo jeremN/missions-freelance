@@ -13,11 +13,21 @@ export interface AiLike {
   ): Promise<AiResponse>;
 }
 
+interface ToolCall {
+  // Native Workers AI shape: flat name + already-parsed arguments object.
+  name?: string;
+  arguments?: unknown;
+  // OpenAI-compatible shape: nested under `function`, arguments as JSON string.
+  function?: { name: string; arguments: string };
+}
+
 export interface AiResponse {
-  response?: string;
-  tool_calls?: Array<{
-    function: { name: string; arguments: string };
-  }>;
+  response?: string | null;
+  // Native Workers AI envelope: tool calls at the top level.
+  tool_calls?: ToolCall[];
+  // OpenAI Chat Completions envelope (e.g. Gemma 4, GLM): tool calls nested
+  // under choices[].message.
+  choices?: Array<{ message?: { tool_calls?: ToolCall[] } }>;
   usage?: { neurons?: number };
 }
 
@@ -37,10 +47,22 @@ export class ScoringFailedError extends Error {
   }
 }
 
-function extractToolArgs(res: AiResponse): string | null {
-  const tc = res.tool_calls?.[0];
-  if (!tc || tc.function?.name !== "extract_mission") return null;
-  return tc.function.arguments;
+/**
+ * Pull the `extract_mission` arguments out of a Workers AI tool-call response,
+ * across the response shapes Workers AI models actually return:
+ *  - native envelope: tool calls at `res.tool_calls` (llama 8B/70B);
+ *  - chat-completions envelope: `res.choices[0].message.tool_calls` (Gemma 4, GLM);
+ * and within a tool call, either the native `{ name, arguments }` (arguments an
+ * object) or the OpenAI `{ function: { name, arguments } }` (arguments a JSON
+ * string). Returns the raw arguments value (object or string); `callOnce`
+ * normalises it. Returns null when there is no `extract_mission` tool call.
+ */
+function extractToolArgs(res: AiResponse): unknown {
+  const tc = res.tool_calls?.[0] ?? res.choices?.[0]?.message?.tool_calls?.[0];
+  if (!tc) return null;
+  const name = tc.name ?? tc.function?.name;
+  if (name !== "extract_mission") return null;
+  return tc.arguments ?? tc.function?.arguments ?? null;
 }
 
 function neuronsOf(res: AiResponse): number {
@@ -59,12 +81,16 @@ async function callOnce(
   const { messages } = buildScoringPrompt(c, profile, { strict });
   const res = await ai.run(AI_MODEL, { messages, tools: [EXTRACTION_TOOL] });
   const args = extractToolArgs(res);
-  if (!args) return { res, extraction: null, rawArgs: "" };
+  if (args == null) return { res, extraction: null, rawArgs: "" };
+  // Native shape gives an object; OpenAI-compat gives a JSON string. Keep a
+  // string form for diagnostics either way.
+  const rawArgs = typeof args === "string" ? args : JSON.stringify(args);
   try {
-    const extraction = parseExtraction(JSON.parse(args));
-    return { res, extraction, rawArgs: args };
+    const parsed = typeof args === "string" ? JSON.parse(args) : args;
+    const extraction = parseExtraction(parsed);
+    return { res, extraction, rawArgs };
   } catch {
-    return { res, extraction: null, rawArgs: args };
+    return { res, extraction: null, rawArgs };
   }
 }
 

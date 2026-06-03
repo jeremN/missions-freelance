@@ -96,23 +96,38 @@ describe("runDigestTick", () => {
     expect(await lastDigestStats()).toMatchObject({ candidates: 0, sent: false, skipped: true });
   });
 
-  it("sends one email and marks only the selected missions notified", async () => {
+  it("sends the top-N real missions and marks only those notified", async () => {
     const hi = await seedMission("hi", { score: 90 });
     const mid = await seedMission("mid", { score: 72 });
-    const low = await seedMission("low", { score: 50 }); // below DIGEST_MIN_SCORE (70)
-    const fake = await seedMission("fake", { score: 95, isRealMission: false }); // not a real mission
+    const low = await seedMission("low", { score: 50 }); // now INCLUDED (no floor)
+    const fake = await seedMission("fake", { score: 95, isRealMission: false }); // excluded
     const email = recordingEmail();
 
     const result = await runDigestTick(env, { email, now: NOW });
 
-    expect(result).toEqual({ candidates: 2, sent: true, skipped: false });
+    expect(result).toEqual({ candidates: 3, sent: true, skipped: false });
     expect(email.calls).toHaveLength(1);
-    expect(email.calls[0].subject).toBe("missions-free — 2 new (top 90)");
+    expect(email.calls[0].subject).toBe("missions-free — 3 new (top 90)");
     expect(await notifiedFor(hi)).toBe(1);
     expect(await notifiedFor(mid)).toBe(1);
-    expect(await notifiedFor(low)).toBe(0); // excluded: below threshold
+    expect(await notifiedFor(low)).toBe(1); // included now
     expect(await notifiedFor(fake)).toBe(0); // excluded: is_real_mission = 0
-    expect(await lastDigestStats()).toMatchObject({ candidates: 2, sent: true });
+    expect(await lastDigestStats()).toMatchObject({ candidates: 3, sent: true });
+  });
+
+  it("caps the digest at DIGEST_TOP_N and rolls the rest over un-notified", async () => {
+    // DIGEST_TOP_N is 5 — seed 6 real missions so the lowest-scored must roll to tomorrow.
+    const rolled = await seedMission("roll", { score: 10 });
+    for (const [ext, score] of [["a", 95], ["b", 90], ["c", 85], ["d", 80], ["e", 75]] as const) {
+      await seedMission(ext, { score });
+    }
+    const email = recordingEmail();
+
+    const result = await runDigestTick(env, { email, now: NOW });
+
+    expect(result.candidates).toBe(5);
+    expect(result.sent).toBe(true);
+    expect(await notifiedFor(rolled)).toBe(0); // below the top-5 cap → competes tomorrow
   });
 
   it("does not mark notified when the send fails, and records the failed run", async () => {

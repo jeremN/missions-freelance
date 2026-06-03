@@ -174,23 +174,24 @@ export async function getMissionsForCandidate(
 }
 
 /**
- * Missions eligible for the daily digest: never-notified, real, score ≥ minScore.
- * Served by idx_missions_notified(notified, score).
+ * Top-N missions for the daily digest: never-notified, real, ranked by score.
+ * No score floor — the digest is a ranked shortlist, so the relatively-best
+ * surface even on a slow day. Tie-break by first_seen (oldest first) for stable
+ * ordering. Served by idx_missions_notified(notified, score).
  */
-export async function getUnnotifiedMissions(
+export async function getTopUnnotifiedMissions(
   db: D1Database,
-  opts: { minScore: number; limit: number },
+  opts: { limit: number },
 ): Promise<MissionRow[]> {
-  const minScore = opts.minScore;
   const limit = Math.min(opts.limit, 500);
   const { results } = await db
     .prepare(
       `SELECT ${SELECT_COLS} FROM missions
-        WHERE notified = 0 AND is_real_mission = 1 AND score >= ?
-        ORDER BY score DESC, last_seen DESC
+        WHERE notified = 0 AND is_real_mission = 1
+        ORDER BY score DESC, first_seen ASC
         LIMIT ?`,
     )
-    .bind(minScore, limit)
+    .bind(limit)
     .all<MissionDbRow>();
   return results.map(hydrate);
 }
