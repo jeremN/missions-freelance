@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { prefilter } from "../../src/matching/prefilter";
 import type { RawMission } from "../../src/sources/types";
+import { profile as deployedProfile } from "../../src/config";
 
 const profile = {
   skills: ["react", "typescript"],
@@ -104,5 +105,51 @@ describe("prefilter", () => {
     expect(r.reasons).toEqual(
       expect.arrayContaining(["hard-kill:cdi", "no-skill-match"]),
     );
+  });
+
+  it("matches a skill token as the prefix of a longer word (react → reactjs)", () => {
+    const r = prefilter(mission({ title: "Senior ReactJS engineer" }), profile);
+    expect(r.passed).toBe(true);
+  });
+
+  it("does not match a short skill token mid-word (ia inside social/média)", () => {
+    const p = { ...profile, skills: ["ia"] };
+    const r = prefilter(
+      mission({ title: "Animateur réseau social", body: "média et communication" }),
+      p,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.reasons).toContain("no-skill-match");
+  });
+
+  it("matches a short skill token as a standalone word (IA)", () => {
+    const p = { ...profile, skills: ["ia"] };
+    const r = prefilter(mission({ title: "Développeur IA / LLM" }), p);
+    expect(r.passed).toBe(true);
+  });
+});
+
+describe("prefilter with the deployed profile", () => {
+  const m = (over: Partial<RawMission>): RawMission => ({
+    source: "codeur",
+    externalId: "x",
+    url: "https://x",
+    title: "",
+    body: "",
+    ...over,
+  });
+
+  it("passes a full-stack / Next.js posting", () => {
+    expect(prefilter(m({ title: "Développeur Full-Stack (Next.js)" }), deployedProfile).passed).toBe(true);
+  });
+
+  it("passes an AI posting via the ia/llm terms", () => {
+    expect(
+      prefilter(m({ title: "Ingénieur IA générative", body: "RAG, LLM, embeddings" }), deployedProfile).passed,
+    ).toBe(true);
+  });
+
+  it("rejects an unrelated posting", () => {
+    expect(prefilter(m({ title: "Plombier chauffagiste" }), deployedProfile).passed).toBe(false);
   });
 });

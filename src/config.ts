@@ -4,7 +4,30 @@ import type { PrefilterProfile } from "./matching/prefilter";
 export type Profile = PrefilterProfile;
 
 export const profile: Profile = {
-  skills: ["typescript", "react", "svelte", "node", "cloudflare", "javascript"],
+  skills: [
+    "typescript",
+    "react",
+    "svelte",
+    "sveltekit",
+    "node",
+    "cloudflare",
+    "javascript",
+    "fullstack",
+    "full-stack",
+    "frontend",
+    "front-end",
+    "nextjs",
+    "next.js",
+    "nuxt",
+    "backend",
+    "back-end",
+    "remix",
+    "astro",
+    "ia",
+    "llm",
+    "genai",
+    "intelligence artificielle",
+  ],
   hardKill: ["cdi", "stage", "alternance", "apprentissage", "for hire"],
   tjm: { lowballBelow: 450 },
 };
