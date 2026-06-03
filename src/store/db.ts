@@ -68,7 +68,7 @@ export async function getCandidates(
        LIMIT ?`,
   );
   const bound = opts.status ? stmt.bind(opts.status, limit) : stmt.bind(limit);
-  const { results } = await bound.all<CandidateRow & { lowball: number }>();
+  const { results } = await bound.all<Omit<CandidateRow, "lowball"> & { lowball: number }>();
   return results.map((r) => ({ ...r, lowball: Boolean(r.lowball) }));
 }
 

@@ -12,14 +12,15 @@ const msg: EmailMessage = {
 describe("email/resend", () => {
   it("POSTs to the Resend API with bearer auth and a JSON body", async () => {
     const fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ id: "1" }), { status: 200 }),
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ id: "1" }), { status: 200 }),
     );
     await createResendClient("key_123", fetchImpl as unknown as typeof fetch).send(
       msg,
     );
 
     expect(fetchImpl).toHaveBeenCalledOnce();
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://api.resend.com/emails");
     expect(init.method).toBe("POST");
     const headers = init.headers as Record<string, string>;
@@ -50,9 +51,9 @@ describe("email/resend", () => {
   it("never leaks the API key in the thrown error", async () => {
     const apiKey = "key_super_secret_123";
     const fetchImpl = vi.fn(async () => new Response("unauthorized", { status: 401 }));
-    const err = await createResendClient(apiKey, fetchImpl as unknown as typeof fetch)
+    const err = (await createResendClient(apiKey, fetchImpl as unknown as typeof fetch)
       .send(msg)
-      .catch((e) => e as Error);
+      .catch((e) => e)) as Error;
     expect(err.message).toMatch(/401/);
     expect(err.message).not.toContain(apiKey);
   });

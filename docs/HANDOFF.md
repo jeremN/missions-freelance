@@ -1,7 +1,7 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-03 (scoring 100%-failure fix + quality rework: Gemma 4, top-N digest)
-**Working branch:** `fix/scoring-toolcall-shape` (10 commits ahead of `main`; **deployed but NOT merged/PR'd**)
+**Last update:** 2026-06-03 (scoring fix + Gemma-4 rework now **MERGED to main** via PR #2; tsc/test-type hygiene fixed on `fix/tsc-types-hygiene`)
+**Working branch:** `fix/tsc-types-hygiene` (off `main`; tsc now 0 errors — see TL;DR #8). The scoring work is already in `main`.
 **Where to look next:** depends on the goal — see "Common entry points" below.
 
 ---
@@ -35,14 +35,23 @@
 4. **Tests run FULLY OFFLINE now** — `vitest.config.ts` sets `remoteBindings:false`
    (Cloudflare Access had broken the remote-AI pool session). **114 pass**, no
    wrangler/network/sandbox needed.
-5. **⚠️ This is all on branch `fix/scoring-toolcall-shape`, deployed to prod but
-   NOT merged or PR'd.** 10 commits ahead of `main`. Decide PR/merge strategy.
+5. **✅ PR #2 (`fix/scoring-toolcall-shape` → `main`) is now MERGED** (merge commit
+   `9b31bb6`; deployed @ version `1e7fe776`). The scoring fix + Gemma-4 rework + top-N
+   digest all live in `main`. The old branch is fully merged (only its final HANDOFF
+   doc commit was carried forward separately).
 6. `docs/superpowers/` is now **git-ignored** (repo rule: superpowers scratch is
    local-only; durable decisions go in an ADR). The rework spec+plan live there
    locally (`2026-06-0{2,3}-…scoring-quality…`).
 7. **Cloudflare Access still LIVE** on the workers.dev route (anon GET → 302).
    Crons unaffected (edge-only gate). Inspect live data via browser PIN login,
    `wrangler tail`, or `wrangler d1 execute … --remote`.
+8. **✅ tsc + test-type hygiene FIXED** (branch `fix/tsc-types-hygiene`, off `main`).
+   `npx tsc --noEmit` was 18 errors → now **0**; `npm test` still **114 pass**.
+   Three fixes: (a) real `getCandidates` row-type `never`-collapse in `src/store/db.ts`;
+   (b) `cloudflare:test` not resolving — added the `@cloudflare/vitest-pool-workers/types`
+   subpath to tsconfig `types` + a `test/env.d.ts` that augments `Cloudflare.Env extends`
+   the app `Env` (single-sourced, no drift); (c) test-mock type drift in
+   `resend.test.ts`/`reddit.test.ts`. **Not yet PR'd/merged** (no push without ask).
 
 ### Triage note (scoring)
 Score failures log to Workers stderr (`console.error("score-failed:", …, rawSnippet)`).
@@ -99,19 +108,26 @@ npx wrangler d1 migrations apply missions-free --remote  # only if new migration
 ## Repo state (as of handoff)
 
 ```
-main (deployed @ version b462558e):
-  → 1ce9750 docs: mark Cloudflare Access live in HANDOFF
-  → 192e7d6 docs: refresh HANDOFF for post-M3 + fetch-pipeline fix
-  → dd32f18 chore(reddit): disable adapter — unauthenticated .json now 403s
-  → 5a1093f fix(free-work): parse bare-array response after API shape change
-  → cc38651 Merge PR #1 — M3 digest email + /api/digest/preview (8 TDD commits beneath)
-  → (M2b / M2a / M1 history beneath)
+main — PR #2 MERGED (merge 9b31bb6), deployed @ version 1e7fe776. The scoring/Gemma-4/
+digest work that was on fix/scoring-toolcall-shape is now in main:
+  → 54ff2b7 docs: refresh HANDOFF after scoring fix + Gemma-4 quality rework
+  → 386683c fix(scoring): parse the chat-completions tool-call envelope (Gemma/GLM)
+  → ea8fbe3 feat(scoring): switch to gemma-4 MoE and fix the neuron-cost estimate
+  → ee2ce70 fix(scoring): cap per-tick neuron spend mid-batch
+  → 5623a35 feat(digest): email a ranked top-N shortlist instead of a fixed threshold
+  → 86c2eae feat(store): add getTopUnnotifiedMissions for ranked digest selection
+  → 50bd49b feat(scoring): rewrite prompt to separate is_real from fit, stop regurgitation
+  → 137209e feat(scoring): use llama-3.3-70b… (SUPERSEDED by ea8fbe3 — model is Gemma now)
+  → fa8f404 docs: refresh README and stop tracking superpowers scratch
+  → b1c1929 fix(scoring): parse native Workers AI tool-call shape
+  → e263d79 test(config): disable remote bindings so pool starts behind Access
 ```
 
-Tests: `npm test` → **106 passed** (86 prior + 19 M3 + 1 fetch-fix).
-⚠️ The suite needs `wrangler login` + network (sandbox-disabled in Claude Code) —
-the vitest pool opens a remote CF session for the `ai` binding. See memory note
-`missions-free-tests-need-wrangler-auth`. CWD `/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
+Tests: `npm test` → **114 passed**, fully **OFFLINE** (`vitest.config.ts` has
+`remoteBindings:false`) — no `wrangler login` / network / sandbox-disable needed.
+**PR #2 is MERGED into `main`.** `tsc --noEmit` is now **0 errors** (was 18 — fixed on
+branch `fix/tsc-types-hygiene`, see TL;DR #8; not yet merged). CWD
+`/Users/jeremienehlil/Documents/Code/Personal/missions-free`.
 
 ---
 
@@ -163,39 +179,81 @@ What to keep an eye on:
 
 ---
 
-## M2c — the real next milestone: DIGEST VOLUME
+## Open threads for next session (decided 2026-06-03)
 
-**Why it matters now:** the pipeline works but yields a *trickle* — Free-Work is
-the only live source, and its page-1 (newest 30, all contracts) matches the
-narrow profile (`ts/react/svelte/node/cloudflare/js`) only ~1/30. Reddit is
-disabled. So digests will be sparse until volume improves. M2c should pick from:
+The scoring pipeline now WORKS and ranks well. Pick up any of these.
 
-- **Broaden the prefilter profile** (`src/config.ts` `profile.skills`) — add
-  `fullstack`, `front`/`frontend`, `web`, `vue`, `angular`, `php`, `python`…
-  (cheapest lever; raises matches immediately).
-- **Free-Work query tuning** — probe the API for a tech/keyword param
-  (`searchKeywords`?) and/or paginate beyond page 1 (`src/sources/free-work.ts`
-  currently fetches page 1 only).
-- **Add Hellowork** (RSS — `parseRssItems`/`fetchText` already shipped).
+### 1. ⭐ LinkedIn missions via an email-ingest adapter (the active thread)
+
+**Goal:** get LinkedIn freelance missions into the pipeline. **Decided approach:
+a source-agnostic INBOUND-email adapter** — Cloudflare **Email Routing** → an
+`email()` handler in the Worker → parse the alert email → insert a candidate
+(then scored by Gemma like any other source). User chose this ("email → Worker").
+
+**Research already done — do NOT redo it:**
+- **The "original source" the user remembered = [freelancemention.fr](https://freelancemention.fr/)**
+  — a PAID service (€12 Lite / €49 Premium per month) whose AI scrapes LinkedIn for
+  freelance missions and **emails (Lite) or webhooks (Premium)** the matches. It is
+  essentially a paid version of THIS project.
+- **How FreelanceMention (and any LinkedIn scraper) works:** LinkedIn's internal
+  **Voyager API** (private JSON API) with authenticated `li_at`+`JSESSIONID` cookies +
+  rotating residential proxies + an LLM to classify. **Not replicable on free-tier
+  Workers** (stateless, datacenter egress IPs LinkedIn blocks, no persistent auth
+  session). This is the paid moat; the original spec already deferred direct LinkedIn to
+  "M4 / paid / external runner".
+- **The FREE path (chosen):** LinkedIn's OWN native **Job Alerts** — on LinkedIn job
+  search set Job type = **Contract** + keywords + location → "Create search alert" → free
+  daily emails. ToS-clean (first-party, your own alerts). **Limitation:** covers only
+  LinkedIn's formal **job board** (Contract listings), NOT the "hidden" feed-post missions
+  (recruiters posting as updates) that FreelanceMention specialises in — those have **no
+  free path**.
+- **Architecture win:** the email-ingest adapter is **source-agnostic** — build it once,
+  feed it LinkedIn's free Contract alerts now; if hidden-feed coverage is ever worth
+  €12/mo, point the SAME inbox at FreelanceMention (Lite=email, Premium=webhook) with zero
+  code change.
+
+**Next step:** brainstorm/design the adapter. Notes for the design: existing adapters are
+PULL/cron (`fetchTick` → `enabledAdapters()`); this one is PUSH/inbound, so it's a NEW
+ingestion path, not a `SourceAdapter`. Needs: Email Routing + `wrangler.jsonc` config, an
+`email()` export in `src/index.ts`, an email→candidate parser (title/body/url from the
+alert), and dedup vs existing candidates (`UNIQUE(source, external_id)`). Load the
+**`cloudflare-email-service`** skill. Email Routing is FREE on the free plan.
+
+### 2. Digest volume (free sources)
+
+Now that scoring ranks correctly, broadening sources is SAFE (junk just ranks low):
+- **Add Hellowork** (RSS — `parseRssItems`/`fetchText` already shipped). Cleanest add.
+- **Free-Work query tuning** — paginate beyond page 1 / probe a keyword param
+  (`src/sources/free-work.ts` fetches page 1 only).
+- **Broaden `profile.skills`** (`src/config.ts`) — but the prefilter is a SUBSTRING
+  OR-match, so short tokens (`js`,`ts`,`vue`) over-match ("json","tests","revue"). Add
+  longer safe terms (`vuejs`,`fullstack`,`full-stack`,`frontend`,`front-end`,`nextjs`).
+  This is the USER's domain (their job prefs) — confirm terms with them.
 - **Reddit via OAuth** (revive the disabled adapter) — lower priority (US-centric).
 
-### Carry-over: WTTJ-Algolia question
+### 3. Parked quick wins (hygiene + tuning) — small, independent, optional
 
-The M2b spec §11.1 documents the WTTJ finding: their job search is backed by
-**Algolia with a referer-locked public API key**. M2b dropped WTTJ to ship
-Free-Work-only. M2c can resolve this or move on without WTTJ.
+- **Field extraction** — Gemma often returns `rate/remote = unknown`; a prompt nudge ("use
+  unknown only if truly absent; don't guess") may tighten it (low risk; many are genuinely
+  absent in postings).
+- **Budget margin** — lower `DAILY_NEURON_BUDGET` 10000 → 9000 (only matters on the **Paid**
+  plan; on **Free**, overage just ERRORS — no billing, ever; the strongest cost protection
+  is staying on Free with no card). Optionally add a dashboard usage alert.
+- ~~**Fix the 18 `tsc --noEmit` errors**~~ **✅ DONE** (branch `fix/tsc-types-hygiene`, off
+  `main`, not yet merged). tsc 18 → **0**, tests still 114. (a) `cloudflare:test` — added the
+  `@cloudflare/vitest-pool-workers/types` subpath to tsconfig `types`; the module decl lives
+  behind that subpath export, not the package's main entry. The downstream `env`-untyped
+  cascade (incl. `fetchTick.test.ts:145`) was auto-fixed by a `test/env.d.ts` that does
+  `declare global { namespace Cloudflare { interface Env extends <app Env> } }` (single-sourced
+  from `src/types/env.ts`, no field duplication). (b) `src/store/db.ts` `getCandidates` row type
+  → `Omit<CandidateRow,"lowball"> & {lowball:number}` (type-only; runtime unchanged). (c) test-
+  mock drift in `resend.test.ts` (typed the fetch mock's params) + `reddit.test.ts` (FetchJson/
+  FetchText casts on the disabled adapter's mocks).
 
-Three viable M2c approaches (pick during M2c brainstorm):
-
-| Approach | What it adds | Trade-off |
-|---|---|---|
-| **A. Skip WTTJ; add Hellowork + Telegram instead** | 2 new adapters (RSS + Telegram Bot API) | Compatible with `parseRssItems` already shipped; clean ethics; Telegram needs a bot setup. |
-| **B. Add WTTJ via Algolia + Referer spoof** | 1 WTTJ adapter | Faster to ship; rotation-risk; in the grey zone. Document explicitly. |
-| **C. Hellowork only** | 1 adapter | Smallest M2c; bias toward steady incremental adds. |
-
-The decision is essentially: "how much do we want WTTJ specifically vs.
-general FR-freelance coverage?" (Note: the old assumption that sources saturate
-the Neuron budget no longer holds — current candidate volume is well under it.)
+### Carry-over: WTTJ-Algolia (from M2b spec §11.1)
+WTTJ job search is Algolia behind a referer-locked public key. Dropped in M2b; resolve or
+skip during a volume push. **Note:** the old "sources saturate the Neuron budget" worry is
+DEAD — real cost is ~10–65 neurons/call (pricing table), the 10k/day budget fits hundreds.
 
 ---
 
@@ -367,17 +425,30 @@ Verified 2026-05-27. Sized against:
 
 Paste something like:
 
-> Resuming missions-free. Read `docs/HANDOFF.md`. M1+M2a+M2b+M3 are shipped to
-> `main`, the worker is deployed at `https://missions-free.jeremn-code.workers.dev`
-> (behind Cloudflare Access), digest email + fetch fix are live. I want to start
-> \<raise digest volume / tune profile / revive Reddit / a carry-forward fix>.
+> Resuming missions-free. Read `docs/HANDOFF.md`. The scoring 100%-failure fix + Gemma-4
+> rework (top-N digest) are **MERGED to `main`** (PR #2, version `1e7fe776`); tsc/test-type
+> hygiene is fixed on `fix/tsc-types-hygiene` (tsc 0, 114 tests pass offline, not yet merged).
+> I want to start \<LinkedIn email-ingest adapter / add Hellowork / digest volume>.
 
 From there, brainstorm the goal (`superpowers:brainstorming`), write spec+plan
 (`superpowers:writing-plans`), then execute (`superpowers:subagent-driven-development`).
+For the **LinkedIn email-ingest thread**, also load the `cloudflare-email-service` skill.
+
+**Operate / inspect live data (the worker is Access-gated):** browser PIN login to
+`/api/*`, or `wrangler tail`, or
+`wrangler d1 execute missions-free --remote --command "SELECT …"`. Score failures log the
+raw model response to stderr (that's how all THREE tool-call shape bugs were caught — see
+[[missions-free-scoring-toolcall-shape]]). If a day's neuron budget shows stuck at 0, it's
+**phantom** `runs.stats.neurons` from an old over-estimate — clear/zero the inflated
+`score`-run rows; real cost is ~tens of neurons/call.
+
+**First action on resume:** PR #2 is already merged. Decide whether to PR/merge
+`fix/tsc-types-hygiene` (tsc fixes) before starting new work; new threads should branch
+off `main` (don't pile onto an existing branch).
 
 **Heads-up for whoever resumes:**
-- `npm test` needs `wrangler login` + network (sandbox-disabled) — see the memory
-  note. Don't mistake the pool's remote-session failure for a code bug.
+- `npm test` runs **FULLY OFFLINE** (`vitest.config.ts` → `remoteBindings:false`) — no
+  `wrangler login` / network / sandbox-disable needed. See [[missions-free-tests-need-wrangler-auth]].
 - The live API is **Access-gated** — anon `curl /api/*` returns 302. Use a browser
   (PIN login) or `wrangler tail` to inspect live data.
 - Don't commit to `main` unprompted — branch first (user rule).

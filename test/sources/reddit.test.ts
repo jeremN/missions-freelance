@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { redditAdapter } from "../../src/sources/reddit";
 import type { AdapterCtx, FetchResult } from "../../src/sources/types";
+import type { FetchJson, FetchText } from "../../src/sources/http";
 
 function ctxReturning(listing: unknown): AdapterCtx {
   return {
@@ -9,7 +10,8 @@ function ctxReturning(listing: unknown): AdapterCtx {
       data: listing,
       etag: 'W/"abc"',
       notModified: false,
-    })),
+    })) as unknown as FetchJson,
+    fetchText: vi.fn() as unknown as FetchText,
   };
 }
 
@@ -55,7 +57,8 @@ describe("redditAdapter", () => {
   it("returns no missions and no state update when the feed is unchanged (304)", async () => {
     const ctx: AdapterCtx = {
       state: { source: "reddit", etag: 'W/"abc"' },
-      fetchJson: vi.fn(async () => ({ data: null, notModified: true })),
+      fetchJson: vi.fn(async () => ({ data: null, notModified: true })) as unknown as FetchJson,
+      fetchText: vi.fn() as unknown as FetchText,
     };
     const out = await redditAdapter.fetch(ctx);
     expect(out.missions).toEqual([]);
@@ -65,8 +68,8 @@ describe("redditAdapter", () => {
   });
 
   it("passes the stored etag to fetchJson", async () => {
-    const fetchJson = vi.fn(async () => ({ data: listing, notModified: false }));
-    await redditAdapter.fetch({ state: { source: "reddit", etag: 'W/"e"' }, fetchJson });
+    const fetchJson = vi.fn(async () => ({ data: listing, notModified: false })) as unknown as FetchJson;
+    await redditAdapter.fetch({ state: { source: "reddit", etag: 'W/"e"' }, fetchJson, fetchText: vi.fn() as unknown as FetchText });
     expect(fetchJson).toHaveBeenCalledWith(expect.stringContaining("reddit.com"), {
       etag: 'W/"e"',
     });
