@@ -1,44 +1,69 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-03 (3 threads built this session: tsc hygiene, digest volume, email ingest — all on a stacked branch chain, NOT merged)
-**Working branch:** `feat/email-ingest` (tip of the stack). **Scoring work is in `main` (PR #2 merged).**
-**Where to look next:** depends on the goal — see "Common entry points" below.
+**Last update:** 2026-06-03 EOD — 3 threads (tsc hygiene, digest volume, email ingest) **MERGED & PUSHED to `main`** (origin/main @ `5b350d4`). **NOT yet deployed.**
+**Working branch:** `main` (clean, synced with origin). Everything below is in `main`.
+**Where to look next:** the "▶ Tomorrow (2026-06-04)" block right below.
 
 ---
 
-## ⚡ Session 2026-06-03 (cont.) — 3 threads done, stacked, NOT merged/pushed
+## ▶ Tomorrow (2026-06-04) — START HERE
 
-All three were built test-first with two-stage review; each is `tsc --noEmit` 0 + full suite green
-(**138 tests**). They are **stacked branches off `main`** (each needs the prior's clean tsc baseline):
+**State:** `main` @ `5b350d4`, pushed to origin, working tree clean. `tsc --noEmit` **0 errors**,
+**138 tests** pass fully offline (`npm test`, no wrangler/network). **Nothing deployed yet** — prod is
+still the previous deploy (version `1e7fe776`, pre-Codeur, pre-email). Three now-redundant **local**
+branches remain (`fix/tsc-types-hygiene`, `feat/digest-volume`, `feat/email-ingest`) — squash-merged, so
+`git branch -d` won't recognize them; safe to `git branch -D` to tidy up.
 
-```
-main ─ fix/tsc-types-hygiene ─ feat/digest-volume ─ feat/email-ingest   (HEAD)
-```
+### Suggested order
+1. **Deploy the merged work:** `npm run deploy`. No new migration; bindings unchanged. Ships the Codeur
+   source + broadened skills + word-boundary matcher + the `email()` handler. The handler is **inert until
+   email routing is wired (step 3)** — deploying it now is safe.
+2. **Watch Codeur flow in** (~30 min after deploy a `fetch` tick should yield `source:"codeur"`
+   candidates). Inspect via `wrangler tail` or browser (Access-gated) `/api/runs` + `/api/candidates`.
+   Let a digest or two go out — junk ranks low now, so broadening is low-risk.
+3. **Wire inbound email** (to actually receive LinkedIn missions): `docs/EMAIL-INGEST-RUNBOOK.md`.
+   Needs a **Cloudflare domain** (Email Routing can't receive on `workers.dev`) → address→Worker rule →
+   Proton forward filter for `linkedin.com` → create the LinkedIn **"Contract" daily** job alert.
+4. **Harden the LinkedIn parser with a real sample:** forward one real LinkedIn job-alert email, then
+   tune the plain-text title/context heuristic in `src/sources/email/linkedin.ts`. (Today's parser is
+   best-effort by design.)
 
-1. **Thread 3 — tsc/test-type hygiene** (`fix/tsc-types-hygiene`, 3 commits): tsc 18→0. See TL;DR #8.
-2. **Thread 2 — digest volume** (`feat/digest-volume`, 3 commits):
-   - **Codeur.com RSS adapter** (`src/sources/codeur.ts`) — FR freelance-project feed, registered+enabled.
-     (Recon killed Hellowork-as-RSS: **Hellowork has no public RSS/JSON, only brittle HTML scraping** →
-     route it via the email path instead. Codeur IS a clean public RSS.)
-   - **Prefilter matcher fix** (`src/matching/prefilter.ts`): skills now match at a **left word boundary**
-     (`react`→`reactjs` still works; short tokens like `ia` no longer hit "so**cia**l"). Enabled safe broadening.
-   - **Broadened `profile.skills`** (`src/config.ts`): +fullstack/frontend/next/nuxt/backend/remix/astro/
-     sveltekit/ia/llm/genai/intelligence artificielle. (Accepted-noise: `ia`→"iam", `astro`→"astronaute" —
-     negligible on Codeur, but **revisit the matcher if scope broadens** — LinkedIn does broaden it.)
-3. **Thread 1 — source-agnostic inbound email ingest** (`feat/email-ingest`, 5 commits): M4.
-   - `email()` handler in `src/index.ts` → `src/email/inbound.ts` → dispatch by **`message.from`** (envelope,
-     anti-spoof allow-list) → per-source parser → `selectCandidates` (extracted, shared w/ fetchTick) →
-     `insertCandidates` → records an `email` run.
-   - **LinkedIn parser** (`src/sources/email/linkedin.ts`): best-effort, regex `/jobs/view/{id}` over the
-     plain-text part. **Refine with a real LinkedIn alert sample** (the chosen "best-effort now" path).
-   - Dep: `postal-mime`. Security-reviewed (spoof tricks rejected, ReDoS-safe, handler never throws).
-   - **Infra is a runbook, not wired:** `docs/EMAIL-INGEST-RUNBOOK.md` — enable Email Routing on a CF
-     **domain** (can't receive on workers.dev), route an address → this Worker, Proton-forward LinkedIn
-     alerts there, create the LinkedIn "Contract" daily alert.
+### What shipped today (now in `main`, 3 squash commits)
+`56714c7` tsc hygiene · `5cd8c66` Codeur + skill matching · `5b350d4` email ingest. All built test-first
+with implementer→review subagents.
 
-**⚠️ First actions on resume:** (a) decide PR/merge order for the stack (tsc-hygiene → digest-volume →
-email-ingest); nothing is pushed. (b) For email ingest to actually receive mail, do the runbook (needs a
-CF domain). (c) Specs/plans for threads 2 & 1 are in the git-ignored `docs/superpowers/{specs,plans}/2026-06-03-*`.
+- **Thread 3 — tsc hygiene:** `tsc --noEmit` 18→0. Real `db.ts getCandidates` never-collapse fix;
+  `cloudflare:test` types resolved via the `@cloudflare/vitest-pool-workers/types` subpath in tsconfig +
+  a DRY `test/env.d.ts` (`declare global { namespace Cloudflare { interface Env extends <app Env> } }`);
+  test-mock drift cleaned. See TL;DR #8 for detail.
+- **Thread 2 — digest volume:**
+  - **Codeur.com RSS adapter** (`src/sources/codeur.ts`, registered + `enabled`) — FR freelance-PROJECT
+    feed `https://www.codeur.com/projects.rss` via the shipped `parseRssItems`/`fetchText`.
+    ⚠️ Recon proved **Hellowork has NO public RSS/JSON** (JS-rendered; only brittle HTML scraping) — so it
+    was dropped as an RSS source and deferred to the email path. Codeur is a clean public RSS.
+  - **Prefilter matcher** (`src/matching/prefilter.ts`): skills now match at a **left word boundary**
+    (`matchesSkillTerm`): `react`→`reactjs` still matches, but `ia` no longer hits "so**cia**l". `hardKill`
+    unchanged (full two-sided boundary via `containsAsWord`).
+  - **Broadened `profile.skills`** (`src/config.ts`): +fullstack/full-stack/frontend/front-end/nextjs/
+    next.js/nuxt/backend/back-end/remix/astro/sveltekit/ia/llm/genai/intelligence artificielle.
+- **Thread 1 — source-agnostic inbound email ingest (M4):**
+  - `email()` in `src/index.ts` → `src/email/inbound.ts`: buffer raw → `PostalMime.parse` → dispatch by
+    **`message.from`** (envelope sender; anti-spoof allow-list) → per-source `EmailParser` → `selectCandidates`
+    (extracted to `src/pipeline/select.ts`, now shared with `fetchTick`) → `insertCandidates` → record an
+    `email` run. Handler **never throws** (recordRun guarded). Dep: `postal-mime`.
+  - **LinkedIn parser** (`src/sources/email/linkedin.ts`): best-effort regex `/comm/jobs/view/{id}` (+ `/jobs/view/{id}`)
+    over the plain-text part; dedups ids; ignores non-job links. Registry: `src/sources/email/registry.ts`.
+  - Security-reviewed: spoof domains (`linkedin.com@evil.com`, `x@linkedin.com.evil.com`) rejected; regex
+    ReDoS-safe; canonical URL rebuilt from the matched id (not reflected).
+  - Specs/plans (git-ignored scratch): `docs/superpowers/{specs,plans}/2026-06-03-*`.
+
+### Carry-forward (small, optional)
+- **Short-token prefilter noise:** `ia`→"iam", `astro`→"astronaute" — negligible on Codeur, but the
+  LinkedIn/email path broadens scope; if noise rises, give ultra-short tokens a two-sided word boundary.
+- **Unbuilt digest-volume levers:** Free-Work pagination (page-1 only today) + Reddit OAuth (disabled).
+- `extractTjm` misreads Codeur project budgets ("1 000 € à 10 000 €") as lowball — harmless (deprioritize only).
+- Adding another emailed source (e.g. Hellowork alerts) = a new parser in `src/sources/email/` + register
+  it in `registry.ts`; no handler change.
 
 ---
 
@@ -465,14 +490,15 @@ Verified 2026-05-27. Sized against:
 
 Paste something like:
 
-> Resuming missions-free. Read `docs/HANDOFF.md`. The scoring 100%-failure fix + Gemma-4
-> rework (top-N digest) are **MERGED to `main`** (PR #2, version `1e7fe776`); tsc/test-type
-> hygiene is fixed on `fix/tsc-types-hygiene` (tsc 0, 114 tests pass offline, not yet merged).
-> I want to start \<LinkedIn email-ingest adapter / add Hellowork / digest volume>.
+> Resuming missions-free. Read `docs/HANDOFF.md` (start at "▶ Tomorrow (2026-06-04)"). The tsc
+> hygiene + Codeur RSS source + inbound email-ingest threads are all **MERGED & PUSHED to `main`**
+> (@ `5b350d4`, tsc 0, 138 tests offline) but **NOT yet deployed**. I want to \<deploy + watch Codeur /
+> wire the email runbook / harden the LinkedIn parser from a real sample>.
 
-From there, brainstorm the goal (`superpowers:brainstorming`), write spec+plan
-(`superpowers:writing-plans`), then execute (`superpowers:subagent-driven-development`).
-For the **LinkedIn email-ingest thread**, also load the `cloudflare-email-service` skill.
+From there: most of the build is done — see the "▶ Tomorrow" suggested order. For NEW feature work
+brainstorm the goal (`superpowers:brainstorming`) → spec+plan (`superpowers:writing-plans`) →
+execute (`superpowers:subagent-driven-development`). For the email runbook, the
+`cloudflare-email-service` skill has the routing details.
 
 **Operate / inspect live data (the worker is Access-gated):** browser PIN login to
 `/api/*`, or `wrangler tail`, or
@@ -482,9 +508,9 @@ raw model response to stderr (that's how all THREE tool-call shape bugs were cau
 **phantom** `runs.stats.neurons` from an old over-estimate — clear/zero the inflated
 `score`-run rows; real cost is ~tens of neurons/call.
 
-**First action on resume:** PR #2 is already merged. Decide whether to PR/merge
-`fix/tsc-types-hygiene` (tsc fixes) before starting new work; new threads should branch
-off `main` (don't pile onto an existing branch).
+**First action on resume:** everything is merged & pushed to `main`. The natural first move is
+**`npm run deploy`** (ships Codeur + email handler; handler stays inert until the runbook is done) —
+see the "▶ Tomorrow" suggested order at the top. Optionally `git branch -D` the 3 stale local branches.
 
 **Heads-up for whoever resumes:**
 - `npm test` runs **FULLY OFFLINE** (`vitest.config.ts` → `remoteBindings:false`) — no
