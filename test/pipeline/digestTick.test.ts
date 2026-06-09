@@ -4,6 +4,40 @@ import { runDigestTick } from "../../src/pipeline/digestTick";
 import { insertCandidates } from "../../src/store/db";
 import { upsertMission } from "../../src/store/missions";
 import type { EmailLike, EmailMessage } from "../../src/email/resend";
+import type { LinkValidator } from "../../src/pipeline/linkHealth";
+
+const okValidator: LinkValidator = {
+  async check() {
+    return { ok: true, status: 200 };
+  },
+};
+
+function validatorFailing(failUrls: Set<string>): LinkValidator {
+  return {
+    async check(url) {
+      return failUrls.has(url)
+        ? { ok: false, status: 404 }
+        : { ok: true, status: 200 };
+    },
+  };
+}
+
+async function setValidationFails(candidateId: number, n: number): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE missions SET validation_fails = ? WHERE candidate_id = ?",
+  )
+    .bind(n, candidateId)
+    .run();
+}
+
+async function validationFailsFor(candidateId: number): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT validation_fails AS v FROM missions WHERE candidate_id = ?",
+  )
+    .bind(candidateId)
+    .first<{ v: number }>();
+  return row!.v;
+}
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM missions");
@@ -89,7 +123,7 @@ async function lastDigestStats(): Promise<{ candidates: number; sent: boolean; s
 describe("runDigestTick", () => {
   it("skips sending and records a run when nothing qualifies", async () => {
     const email = recordingEmail();
-    const result = await runDigestTick(env, { email, now: NOW });
+    const result = await runDigestTick(env, { email, validator: okValidator, now: NOW });
 
     expect(result).toEqual({ candidates: 0, sent: false, skipped: true });
     expect(email.calls).toHaveLength(0);
@@ -103,7 +137,7 @@ describe("runDigestTick", () => {
     const fake = await seedMission("fake", { score: 95, isRealMission: false }); // excluded
     const email = recordingEmail();
 
-    const result = await runDigestTick(env, { email, now: NOW });
+    const result = await runDigestTick(env, { email, validator: okValidator, now: NOW });
 
     expect(result).toEqual({ candidates: 3, sent: true, skipped: false });
     expect(email.calls).toHaveLength(1);
@@ -123,7 +157,7 @@ describe("runDigestTick", () => {
     }
     const email = recordingEmail();
 
-    const result = await runDigestTick(env, { email, now: NOW });
+    const result = await runDigestTick(env, { email, validator: okValidator, now: NOW });
 
     expect(result.candidates).toBe(5);
     expect(result.sent).toBe(true);
@@ -133,10 +167,155 @@ describe("runDigestTick", () => {
   it("does not mark notified when the send fails, and records the failed run", async () => {
     const hi = await seedMission("hi", { score: 90 });
 
-    const result = await runDigestTick(env, { email: throwingEmail(), now: NOW });
+    const result = await runDigestTick(env, { email: throwingEmail(), validator: okValidator, now: NOW });
 
     expect(result).toEqual({ candidates: 1, sent: false, skipped: false });
     expect(await notifiedFor(hi)).toBe(0); // rolls to tomorrow
     expect(await lastDigestStats()).toMatchObject({ candidates: 1, sent: false });
+  });
+
+  it("drops a broken link and backfills so a full digest still ships", async () => {
+    // 6 real missions; the score-85 one ("c") has a broken link.
+    for (const [ext, score] of [
+      ["a", 95],
+      ["b", 90],
+      ["c", 85],
+      ["d", 80],
+      ["e", 75],
+      ["f", 70],
+    ] as const) {
+      await seedMission(ext, { score });
+    }
+    const email = recordingEmail();
+
+    const result = await runDigestTick(env, {
+      email,
+      validator: validatorFailing(new Set(["https://x/c"])),
+      now: NOW,
+    });
+
+    expect(result).toEqual({ candidates: 5, sent: true, skipped: false });
+    expect(email.calls[0].subject).toBe("missions-free — 5 new (top 95)");
+    expect(await lastDigestStats()).toMatchObject({
+      pool: 6,
+      dropped: 1,
+      gaveUp: 0,
+      sent: true,
+    });
+  });
+
+  it("leaves a dropped-but-not-retired mission un-notified, and notifies the backfill", async () => {
+    const c = await (async () => {
+      let cid = 0;
+      for (const [ext, score] of [
+        ["a", 95],
+        ["b", 90],
+        ["c", 85],
+        ["d", 80],
+        ["e", 75],
+        ["f", 70],
+      ] as const) {
+        const id = await seedMission(ext, { score });
+        if (ext === "c") cid = id;
+      }
+      return cid;
+    })();
+
+    await runDigestTick(env, {
+      email: recordingEmail(),
+      validator: validatorFailing(new Set(["https://x/c"])),
+      now: NOW,
+    });
+
+    expect(await notifiedFor(c)).toBe(0); // dropped, fails=1 (< 3) -> competes tomorrow
+    expect(await validationFailsFor(c)).toBe(1); // incremented
+  });
+
+  it("retires a mission after DIGEST_GIVE_UP_AFTER consecutive failures", async () => {
+    const dead = await seedMission("dead", { score: 90 });
+    await setValidationFails(dead, 2); // one more failure crosses the threshold (3)
+    const email = recordingEmail();
+
+    const result = await runDigestTick(env, {
+      email,
+      validator: validatorFailing(new Set(["https://x/dead"])),
+      now: NOW,
+    });
+
+    expect(result).toEqual({ candidates: 0, sent: false, skipped: true });
+    expect(email.calls).toHaveLength(0);
+    expect(await notifiedFor(dead)).toBe(1); // given up -> retired even with no send
+    expect(await lastDigestStats()).toMatchObject({ pool: 1, dropped: 1, gaveUp: 1 });
+  });
+
+  it("resets the failure counter when a previously-failing link recovers", async () => {
+    let f = 0;
+    for (const [ext, score] of [
+      ["a", 95],
+      ["b", 90],
+      ["c", 85],
+      ["d", 80],
+      ["e", 75],
+      ["f", 70],
+    ] as const) {
+      const id = await seedMission(ext, { score });
+      if (ext === "f") f = id; // rank 6 -- outside the top-5, so passed-but-not-sent
+    }
+    await setValidationFails(f, 2);
+
+    await runDigestTick(env, { email: recordingEmail(), validator: okValidator, now: NOW });
+
+    expect(await notifiedFor(f)).toBe(0); // healthy but not in the top-5
+    expect(await validationFailsFor(f)).toBe(0); // recovered -> debt cleared
+  });
+
+  it("credits a recovery even when the send fails (counter tracks link, not email)", async () => {
+    // hi recovered today (validator OK) but Resend throws → not notified. Its
+    // failure streak must still reset: the link was healthy, only delivery failed.
+    const hi = await seedMission("hi", { score: 90 });
+    await setValidationFails(hi, 2);
+
+    const result = await runDigestTick(env, {
+      email: throwingEmail(),
+      validator: okValidator,
+      now: NOW,
+    });
+
+    expect(result).toEqual({ candidates: 1, sent: false, skipped: false });
+    expect(await notifiedFor(hi)).toBe(0); // send failed → competes again tomorrow
+    expect(await validationFailsFor(hi)).toBe(0); // recovery credited despite send failure
+  });
+
+  it("retires a dead mission and ships the healthy ones in the same run", async () => {
+    let dead = 0;
+    for (const [ext, score] of [
+      ["a", 95],
+      ["b", 90],
+      ["dead", 88],
+      ["d", 80],
+      ["e", 75],
+      ["f", 70],
+    ] as const) {
+      const id = await seedMission(ext, { score });
+      if (ext === "dead") dead = id;
+    }
+    await setValidationFails(dead, 2); // its failure today crosses the threshold
+    const email = recordingEmail();
+
+    const result = await runDigestTick(env, {
+      email,
+      validator: validatorFailing(new Set(["https://x/dead"])),
+      now: NOW,
+    });
+
+    expect(result).toEqual({ candidates: 5, sent: true, skipped: false });
+    expect(await notifiedFor(dead)).toBe(1); // retired (given up)
+    expect(email.calls[0].html).not.toContain("https://x/dead");
+    expect(await lastDigestStats()).toMatchObject({
+      pool: 6,
+      dropped: 1,
+      gaveUp: 1,
+      sent: true,
+    });
   });
 });
