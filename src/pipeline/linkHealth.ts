@@ -2,7 +2,10 @@ import { LINK_CHECK_TIMEOUT_MS } from "../config";
 
 export interface LinkCheckResult {
   ok: boolean; // true iff safe to put in the digest
-  status: number | null; // null = network/timeout error (couldn't determine)
+  // HTTP status, or null when no status applies: either a network/timeout error
+  // (then ok=false) or an intentionally-skipped allowlisted source (then ok=true).
+  // Always read `ok` first to tell those two apart.
+  status: number | null;
   redirectedTo?: string; // Location header of a 3xx, for the audit log
 }
 
@@ -49,7 +52,9 @@ export function createLinkValidator(
 
   return {
     async check(url, source) {
-      if (skipSources.has(source)) return { ok: true, status: null };
+      // Source ids are lowercase slugs; lowercase defensively so a stray
+      // "LinkedIn" can't slip past the allowlist and hit the network.
+      if (skipSources.has(source.toLowerCase())) return { ok: true, status: null };
       try {
         let res = await probe(url, "HEAD");
         if (res.status === 405) res = await probe(url, "GET"); // host rejects HEAD
@@ -61,6 +66,7 @@ export function createLinkValidator(
             redirectedTo: res.headers.get("location") ?? undefined,
           };
         }
+        // Everything else (4xx incl. a GET that also 405s, 5xx) is not-ok.
         return { ok: false, status: res.status };
       } catch {
         return { ok: false, status: null }; // timeout / network — skip today

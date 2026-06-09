@@ -36,6 +36,20 @@ describe("createLinkValidator", () => {
     expect(await v.check("https://e/x", "free-work")).toEqual({ ok: false, status: 404 });
   });
 
+  it("is not-ok on a 5xx", async () => {
+    const v = createLinkValidator({
+      fetchImpl: fetchReturning(new Response(null, { status: 503 })),
+    });
+    expect(await v.check("https://e/x", "free-work")).toEqual({ ok: false, status: 503 });
+  });
+
+  it("omits redirectedTo when a 3xx carries no Location header", async () => {
+    const v = createLinkValidator({
+      fetchImpl: fetchReturning(new Response(null, { status: 302 })),
+    });
+    expect(await v.check("https://e/x", "free-work")).toEqual({ ok: false, status: 302 });
+  });
+
   it("skips allowlisted sources without any network call", async () => {
     const spy = vi.fn(
       async () => new Response(null, { status: 500 }),
