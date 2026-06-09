@@ -1,18 +1,18 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-09 — Free-Work **link-rot fix MERGED & PUSHED to `main`** (origin/main @ `787275f`). A follow-on **digest link-validation feature is OPEN as PR #3** (`feat/digest-link-validation`, **NOT merged, NOT deployed**).
-**Working branch:** `feat/digest-link-validation` (pushed, PR #3). `main` @ `787275f`.
+**Last update:** 2026-06-09 (cont.) — **PR #3 (digest link-validation) is now SQUASH-MERGED into `main` and DEPLOYED.** Prod runs **version `e4bf2141`** (full `main` @ `1d37087`) and migration **`0003_validation_fails` is applied to prod D1**. Because this deploy ships the full `main`, it also makes live everything that was previously merged-but-unverified: **Codeur RSS, the inbound `email()` handler** (inert until routing is wired), Gemma-4 scoring, and the top-N digest. **Everything in `main` is now live.**
+**Working branch:** `main` @ `1d37087` (PR #3 merged; `feat/digest-link-validation` branch deleted). Working tree clean.
 **Where to look next:** the "▶ Next session (2026-06-09)" block right below. (The older "▶ Session 2026-06-04" block beneath it is history.)
 
 ---
 
 ## ▶ Next session (2026-06-09) — START HERE
 
-**State:** `main` @ `787275f` (Free-Work URL fix, pushed). Branch `feat/digest-link-validation`
-pushed as **PR #3** — 6 commits, **158 tests pass offline**, `tsc --noEmit` clean. **Nothing from
-this session is deployed.** ⚠️ Deploy state of the *earlier* 2026-06-04 work (Codeur + email handler)
-is **unverified this session** — confirm what prod is actually running before deploying (infra table
-still lists version `1e7fe776` from 2026-06-03).
+**State:** `main` @ `1d37087` — PR #3 squash-merged & **DEPLOYED** (prod version `e4bf2141`, 2026-06-09).
+**158 tests pass offline**, `tsc --noEmit` clean. Migration `0003` applied to prod D1. Because this deploy
+ships the full `main`, the earlier 2026-06-04 work (Codeur RSS + inbound `email()` handler) is **now live
+too**, superseding the old `1e7fe776` (2026-06-03) deploy. The `email()` handler is deployed but **inert
+until inbound email routing is wired** (see the 2026-06-04 block, step 3).
 
 ### What shipped to `main` this session
 - **`787275f` fix(free-work): canonical job-mission URL so digest links don't redirect.** Root cause of
@@ -25,9 +25,9 @@ still lists version `1e7fe776` from 2026-06-03).
   Cross-checked the other sources: **codeur** clean (raw feed `<link>`), **linkedin** already canonical
   (`/jobs/view/{id}`; LinkedIn itself may auth-wall/expire — inherent, not ours), **reddit** disabled.
 
-### ⭐ The open work — PR #3: digest-time link validation (`feat/digest-link-validation`)
+### ⭐ Shipped & deployed — PR #3: digest-time link validation (merged into `main`, live @ `e4bf2141`)
 The systemic guard so the *next* such regression never reaches the inbox. Validates every digest link
-the instant before it ships.
+the instant before it ships. **Now merged + deployed; migration `0003` applied to prod.**
 - **Over-select + backfill:** the tick pulls `DIGEST_VALIDATION_POOL` (= `4 × DIGEST_TOP_N` = 20)
   un-notified real missions, validates all concurrently, ships the top-5 **healthy** ones (backfilling
   past broken links).
@@ -45,16 +45,20 @@ the instant before it ships.
   `src/store/missions.ts` (column + `increment/resetValidationFails`), `src/pipeline/digestTick.ts`, + tests.
 
 ### Suggested order
-1. **Review & merge PR #3** (https://github.com/jeremN/missions-freelance/pull/3). Built test-first via
-   subagent-driven execution (implementer → spec reviewer → code-quality reviewer per task). Two findings
-   of note already fixed in-branch: a **tsc regression** (a `MissionRow` test-mock missing the new required
-   `validationFails` field — Task 2's review only ran the targeted test file, not full `tsc`) and a real
-   **`recoveredIds` edge** (a link recovering the *same day* a send throws now still resets its counter;
-   test fails on the old logic).
-2. **⚠️ DEPLOY PREREQ — apply migration 0003 to prod D1 BEFORE deploying the new Worker**, or the first
-   digest tick crashes on `SELECT … validation_fails …`:
-   `npx wrangler d1 migrations apply missions-free --remote`  → then `npm run deploy`.
-3. (If not already done) deploy/verify the 2026-06-04 Codeur + email work — see the history block below.
+1. ✅ **DONE — PR #3 reviewed, squash-merged, migration `0003` applied to prod D1, Worker deployed**
+   (version `e4bf2141`). Built test-first via subagent-driven execution. (For history: two findings were
+   fixed in-branch before merge — a **tsc regression** from a `MissionRow` test-mock missing the new
+   `validationFails` field, and a real **`recoveredIds` edge** where a link recovering the *same day* a
+   send throws still resets its counter.)
+2. ✅ **DONE — Codeur RSS + inbound `email()` handler are now live** (shipped with this deploy; merged
+   2026-06-04 but unverified until now). The handler stays **inert until email routing is wired** (step 4).
+3. **Watch the first link-validated digest go out** (05:00 UTC cron). Confirm prod behavior: the run audit
+   should carry `pool/dropped/gaveUp`, each dropped link `console.warn`ed with `{url,status,redirectedTo}`,
+   and the top-5 *healthy* missions shipped (backfilling past broken ones). Inspect via `wrangler tail` or
+   the Access-gated `/api/runs`.
+4. **Wire inbound email** to actually receive LinkedIn missions — see the 2026-06-04 block step 3 +
+   `docs/EMAIL-INGEST-RUNBOOK.md` (needs a Cloudflare domain; Email Routing can't receive on `workers.dev`).
+5. **Raise digest volume** — Free-Work pagination (page-1 only today), Hellowork RSS, or Reddit OAuth.
 
 ### Carry-forward (link-validation follow-ups, all optional — from the final review)
 - **Sent vs given-up are indistinguishable on the row** (both `notified=1`); the split lives only in the
@@ -189,7 +193,7 @@ reports `usage.neurons` (Gemma does not), so it over/under-states real spend som
 | | |
 |---|---|
 | Worker URL | `https://missions-free.jeremn-code.workers.dev` |
-| Worker version ID | `1e7fe776-1eae-467e-8fdc-83d5f552c71a` (2026-06-03, Gemma 4 + chat-completions parser) |
+| Worker version ID | `e4bf2141-47dd-4c19-9556-ffd3e1bcf4f3` (2026-06-09, link-validation + Codeur + email handler + Gemma 4) |
 | AI model | `@cf/google/gemma-4-26b-a4b-it` (`AI_MODEL` in `src/config.ts`) |
 | D1 database | `missions-free` |
 | D1 UUID | `39254e3d-09ea-4e82-96f5-91096e08aff4` |
@@ -197,8 +201,8 @@ reports `usage.neurons` (Gemma does not), so it over/under-states real spend som
 | Bindings | `DB` (D1) + `AI` (Workers AI) + `ASSETS` (public/) |
 | Secrets | `RESEND_API_KEY`, `DIGEST_TO`, `DIGEST_FROM` (= `onboarding@resend.dev`) |
 | Crons | `*/30` → `runFetchTick`, `*/15` → `runScoreTick`, `0 5 * * *` → `runDigestTick` |
-| Active sources | `free-work` only (reddit `enabled:false` — 403s unauthenticated) |
-| Migrations applied | prod: `0001_init` + `0002_missions`. ⚠️ **`0003_validation_fails` is NEW on PR #3 — must be applied `--remote` BEFORE deploying that branch** |
+| Active sources | `free-work` + `codeur` (both `enabled:true`; reddit `enabled:false` — 403s unauthenticated) |
+| Migrations applied | prod: `0001_init` + `0002_missions` + **`0003_validation_fails`** (applied 2026-06-09, `--remote`) |
 | Access | **Cloudflare Access — owner email only** (team `bold-bonus-d767.cloudflareaccess.com`, aud `b6d5c44f…dc2c17`) |
 | Dashboard | https://missions-free.jeremn-code.workers.dev/ (behind Access — log in via one-time PIN) |
 
