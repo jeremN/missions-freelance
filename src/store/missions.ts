@@ -23,6 +23,7 @@ export interface MissionRow extends MissionInput {
   firstSeen: string;
   lastSeen: string;
   notified: boolean;
+  validationFails: number;
 }
 
 interface MissionDbRow {
@@ -44,6 +45,7 @@ interface MissionDbRow {
   firstSeen: string;
   lastSeen: string;
   notified: number;
+  validationFails: number;
 }
 
 /**
@@ -83,6 +85,7 @@ function hydrate(r: MissionDbRow): MissionRow {
     firstSeen: r.firstSeen,
     lastSeen: r.lastSeen,
     notified: Boolean(r.notified),
+    validationFails: r.validationFails,
   };
 }
 
@@ -91,7 +94,8 @@ const SELECT_COLS = `
   is_real_mission AS isRealMission, rate_eur_day AS rateEurDay,
   duration, remote, location, skills, client_type AS clientType,
   score, reason, raw_response AS rawResponse,
-  first_seen AS firstSeen, last_seen AS lastSeen, notified`;
+  first_seen AS firstSeen, last_seen AS lastSeen, notified,
+  validation_fails AS validationFails`;
 
 /**
  * Insert a mission for a candidate, or update score / lastSeen / extracted
@@ -202,6 +206,34 @@ export async function markNotified(db: D1Database, ids: number[]): Promise<void>
   const placeholders = ids.map(() => "?").join(", ");
   await db
     .prepare(`UPDATE missions SET notified = 1 WHERE id IN (${placeholders})`)
+    .bind(...ids)
+    .run();
+}
+
+/** Increment the consecutive-failure counter for the given mission ids. No-op on []. */
+export async function incrementValidationFails(
+  db: D1Database,
+  ids: number[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(", ");
+  await db
+    .prepare(
+      `UPDATE missions SET validation_fails = validation_fails + 1 WHERE id IN (${placeholders})`,
+    )
+    .bind(...ids)
+    .run();
+}
+
+/** Reset the failure counter to 0 for the given mission ids. No-op on []. */
+export async function resetValidationFails(
+  db: D1Database,
+  ids: number[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(", ");
+  await db
+    .prepare(`UPDATE missions SET validation_fails = 0 WHERE id IN (${placeholders})`)
     .bind(...ids)
     .run();
 }
