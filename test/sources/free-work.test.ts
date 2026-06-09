@@ -82,6 +82,39 @@ describe("freeWorkAdapter", () => {
     expect(run.missions[0].url).toContain("senior-react");
   });
 
+  it("builds the canonical /fr/tech-it/{job.slug}/job-mission/{slug} URL", async () => {
+    const run = await freeWorkAdapter.fetch(
+      ctxWith({
+        data: [
+          {
+            id: 642342,
+            title: "Contract Manager Telecom",
+            slug: "contract-manager-telecom-delivery-telecom",
+            job: { slug: "responsable-telecom" },
+          },
+        ],
+        notModified: false,
+      }),
+    );
+    expect(run.missions[0].url).toBe(
+      "https://www.free-work.com/fr/tech-it/responsable-telecom/job-mission/contract-manager-telecom-delivery-telecom",
+    );
+  });
+
+  it("falls back to /fr/tech-it/job-mission/{slug} when job.slug is absent", async () => {
+    // The site 301-resolves this short path to the canonical job page, so the
+    // link still lands on the right posting rather than the generic listing.
+    const run = await freeWorkAdapter.fetch(
+      ctxWith({
+        data: [{ id: 1, title: "Senior React", slug: "senior-react" }],
+        notModified: false,
+      }),
+    );
+    expect(run.missions[0].url).toBe(
+      "https://www.free-work.com/fr/tech-it/job-mission/senior-react",
+    );
+  });
+
   it("passes the configured URL with the user's etag to fetchJson", async () => {
     const fetchJson = vi.fn(async () => ({
       data: freeWorkFixture,

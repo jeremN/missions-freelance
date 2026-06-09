@@ -24,6 +24,9 @@ interface FreeWorkItem {
   description?: string;
   publishedAt?: string;
   contracts?: string[];
+  // The job category. Its slug is the first path segment of the canonical
+  // posting URL (see jobUrl). Optional because older captured fixtures predate it.
+  job?: { slug?: string } | null;
 }
 
 type FreeWorkItems = Array<FreeWorkItem | null | undefined>;
@@ -52,6 +55,28 @@ function validItem(
   );
 }
 
+/**
+ * Build the canonical public URL for a posting. The API returns no URL, so we
+ * construct it. The real route is /fr/tech-it/{job.slug}/job-mission/{slug},
+ * which serves the posting directly (HTTP 200, no redirect).
+ *
+ * When job.slug is absent we drop the category segment: the site 301-resolves
+ * /fr/tech-it/job-mission/{slug} to the canonical page, so the link still lands
+ * on the right posting (one redirect) instead of the generic /jobs listing —
+ * which is where the old /fr/tech-it/jobs/{slug} guess dead-ended.
+ */
+function jobUrl(item: FreeWorkItem & { slug: string }): string {
+  const slug = encodeURIComponent(item.slug);
+  const jobSlug =
+    item.job && typeof item.job.slug === "string" && item.job.slug.length > 0
+      ? encodeURIComponent(item.job.slug)
+      : null;
+  const path = jobSlug
+    ? `${jobSlug}/job-mission/${slug}`
+    : `job-mission/${slug}`;
+  return `https://www.free-work.com/fr/tech-it/${path}`;
+}
+
 export const freeWorkAdapter: SourceAdapter = {
   id: "free-work",
   enabled: true,
@@ -69,7 +94,7 @@ export const freeWorkAdapter: SourceAdapter = {
     const missions: RawMission[] = membersOf(res.data).filter(validItem).map((item) => ({
       source: "free-work",
       externalId: String(item.id),
-      url: `https://www.free-work.com/fr/tech-it/jobs/${encodeURIComponent(item.slug)}`,
+      url: jobUrl(item),
       title: item.title,
       body: item.description ?? "",
       postedAt: item.publishedAt,
