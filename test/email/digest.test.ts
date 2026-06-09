@@ -24,6 +24,7 @@ function mission(over: Partial<MissionRow> = {}): MissionRow {
     firstSeen: "2026-06-01T00:00:00.000Z",
     lastSeen: "2026-06-01T00:00:00.000Z",
     notified: false,
+    validationFails: 0,
     ...over,
   };
 }

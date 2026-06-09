@@ -5,7 +5,9 @@ import {
   getMissions,
   getMissionsForCandidate,
   getTopUnnotifiedMissions,
+  incrementValidationFails,
   markNotified,
+  resetValidationFails,
   upsertMission,
 } from "../../src/store/missions";
 
@@ -239,5 +241,99 @@ describe("store/missions — digest selection", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].candidateId).toBe(b); // only b remains un-notified
     expect(rows[0].score).toBe(85);
+  });
+});
+
+describe("store/missions — validation_fails", () => {
+  async function seedOne(externalId = "v1"): Promise<number> {
+    await insertCandidates(env.DB, [
+      {
+        source: "reddit",
+        externalId,
+        url: `https://x/${externalId}`,
+        title: "T",
+        body: "",
+        tjm: 600,
+        lowball: false,
+      },
+    ]);
+    const cid = (
+      await env.DB.prepare("SELECT id FROM candidates WHERE external_id = ?")
+        .bind(externalId)
+        .first<{ id: number }>()
+    )!.id;
+    await upsertMission(env.DB, {
+      candidateId: cid,
+      source: "reddit",
+      url: `https://x/${externalId}`,
+      title: "T",
+      isRealMission: true,
+      rateEurDay: 600,
+      duration: null,
+      remote: "unknown",
+      location: null,
+      skills: [],
+      clientType: "unknown",
+      score: 50,
+      reason: "",
+      rawResponse: "{}",
+    });
+    return cid;
+  }
+
+  async function missionIdFor(candidateId: number): Promise<number> {
+    return (
+      await env.DB.prepare("SELECT id FROM missions WHERE candidate_id = ?")
+        .bind(candidateId)
+        .first<{ id: number }>()
+    )!.id;
+  }
+
+  // NOTE: takes a CANDIDATE id (not a mission id) — missions are keyed 1:1 to
+  // candidates, so this reads the fail counter for that candidate's mission.
+  async function failsFor(candidateId: number): Promise<number> {
+    return (
+      await env.DB.prepare(
+        "SELECT validation_fails AS v FROM missions WHERE candidate_id = ?",
+      )
+        .bind(candidateId)
+        .first<{ v: number }>()
+    )!.v;
+  }
+
+  it("new missions default validation_fails to 0 and it hydrates onto MissionRow", async () => {
+    await seedOne("v1");
+    const row = (await getMissions(env.DB, { limit: 1 }))[0];
+    expect(row.validationFails).toBe(0);
+  });
+
+  it("incrementValidationFails bumps the counter and is a no-op on []", async () => {
+    const cid = await seedOne("v1");
+    const id = await missionIdFor(cid);
+    await incrementValidationFails(env.DB, []); // no-op
+    expect(await failsFor(cid)).toBe(0);
+    await incrementValidationFails(env.DB, [id]);
+    await incrementValidationFails(env.DB, [id]);
+    expect(await failsFor(cid)).toBe(2);
+  });
+
+  it("incrementValidationFails only touches the given ids", async () => {
+    const a = await seedOne("va");
+    const b = await seedOne("vb");
+    await incrementValidationFails(env.DB, [await missionIdFor(a)]);
+    expect(await failsFor(a)).toBe(1);
+    expect(await failsFor(b)).toBe(0); // IN-clause boundary: b untouched
+  });
+
+  it("resetValidationFails zeroes the counter and is a no-op on []", async () => {
+    const cid = await seedOne("v1");
+    const id = await missionIdFor(cid);
+    await incrementValidationFails(env.DB, [id]);
+    await incrementValidationFails(env.DB, [id]);
+    expect(await failsFor(cid)).toBe(2);
+    await resetValidationFails(env.DB, []); // no-op
+    expect(await failsFor(cid)).toBe(2);
+    await resetValidationFails(env.DB, [id]);
+    expect(await failsFor(cid)).toBe(0);
   });
 });

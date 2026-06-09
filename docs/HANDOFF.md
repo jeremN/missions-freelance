@@ -1,12 +1,72 @@
 # missions-free — Handoff
 
-**Last update:** 2026-06-03 EOD — 3 threads (tsc hygiene, digest volume, email ingest) **MERGED & PUSHED to `main`** (origin/main @ `5b350d4`). **NOT yet deployed.**
-**Working branch:** `main` (clean, synced with origin). Everything below is in `main`.
-**Where to look next:** the "▶ Tomorrow (2026-06-04)" block right below.
+**Last update:** 2026-06-09 — Free-Work **link-rot fix MERGED & PUSHED to `main`** (origin/main @ `787275f`). A follow-on **digest link-validation feature is OPEN as PR #3** (`feat/digest-link-validation`, **NOT merged, NOT deployed**).
+**Working branch:** `feat/digest-link-validation` (pushed, PR #3). `main` @ `787275f`.
+**Where to look next:** the "▶ Next session (2026-06-09)" block right below. (The older "▶ Session 2026-06-04" block beneath it is history.)
 
 ---
 
-## ▶ Tomorrow (2026-06-04) — START HERE
+## ▶ Next session (2026-06-09) — START HERE
+
+**State:** `main` @ `787275f` (Free-Work URL fix, pushed). Branch `feat/digest-link-validation`
+pushed as **PR #3** — 6 commits, **158 tests pass offline**, `tsc --noEmit` clean. **Nothing from
+this session is deployed.** ⚠️ Deploy state of the *earlier* 2026-06-04 work (Codeur + email handler)
+is **unverified this session** — confirm what prod is actually running before deploying (infra table
+still lists version `1e7fe776` from 2026-06-03).
+
+### What shipped to `main` this session
+- **`787275f` fix(free-work): canonical job-mission URL so digest links don't redirect.** Root cause of
+  the user's "links don't work / get redirected" report: `src/sources/free-work.ts` *constructed* posting
+  URLs from a **guessed** path `/fr/tech-it/jobs/{slug}` that **301-redirected to the generic
+  `/fr/tech-it/jobs` listing** (a silent soft-404 — 200 after redirect, so nothing threw). Fixed to the
+  real route `https://www.free-work.com/fr/tech-it/{item.job.slug}/job-mission/{item.slug}` (verified
+  200-direct against live postings). Falls back to `/fr/tech-it/job-mission/{slug}` (which the site
+  301-resolves to canonical) when `item.job.slug` is absent. See memory [[missions-free-freework-url-and-feed]].
+  Cross-checked the other sources: **codeur** clean (raw feed `<link>`), **linkedin** already canonical
+  (`/jobs/view/{id}`; LinkedIn itself may auth-wall/expire — inherent, not ours), **reddit** disabled.
+
+### ⭐ The open work — PR #3: digest-time link validation (`feat/digest-link-validation`)
+The systemic guard so the *next* such regression never reaches the inbox. Validates every digest link
+the instant before it ships.
+- **Over-select + backfill:** the tick pulls `DIGEST_VALIDATION_POOL` (= `4 × DIGEST_TOP_N` = 20)
+  un-notified real missions, validates all concurrently, ships the top-5 **healthy** ones (backfilling
+  past broken links).
+- **Strict validator** `src/pipeline/linkHealth.ts` (`createLinkValidator`, injectable): healthy only if a
+  no-redirect `HEAD` returns `200` (HEAD→GET fallback on 405); 3xx/4xx/5xx/timeout = unhealthy. Allowlisted
+  sources (`SKIP_VALIDATION_SOURCES = {"linkedin"}`) skip the network (LinkedIn auth-walls + datacenter
+  egress would false-fail).
+- **Give-up:** per-mission `validation_fails` counter (**migration `0003_validation_fails.sql`**) retires a
+  posting (`markNotified`) after `DIGEST_GIVE_UP_AFTER` (3) consecutive failures — **even on a day nothing
+  ships** — and resets whenever a link passes (tracks *link* health, not email delivery).
+- **Audit:** run stats gain `pool/dropped/gaveUp`; each dropped link is `console.warn`ed with
+  `{url, status, redirectedTo}`. Preserves send-then-mark (at-least-once) + never-throw semantics.
+  `src/index.ts` unchanged (real validator is the default).
+- Files: `migrations/0003_*.sql`, `src/config.ts` (3 consts), `src/pipeline/linkHealth.ts`,
+  `src/store/missions.ts` (column + `increment/resetValidationFails`), `src/pipeline/digestTick.ts`, + tests.
+
+### Suggested order
+1. **Review & merge PR #3** (https://github.com/jeremN/missions-freelance/pull/3). Built test-first via
+   subagent-driven execution (implementer → spec reviewer → code-quality reviewer per task). Two findings
+   of note already fixed in-branch: a **tsc regression** (a `MissionRow` test-mock missing the new required
+   `validationFails` field — Task 2's review only ran the targeted test file, not full `tsc`) and a real
+   **`recoveredIds` edge** (a link recovering the *same day* a send throws now still resets its counter;
+   test fails on the old logic).
+2. **⚠️ DEPLOY PREREQ — apply migration 0003 to prod D1 BEFORE deploying the new Worker**, or the first
+   digest tick crashes on `SELECT … validation_fails …`:
+   `npx wrangler d1 migrations apply missions-free --remote`  → then `npm run deploy`.
+3. (If not already done) deploy/verify the 2026-06-04 Codeur + email work — see the history block below.
+
+### Carry-forward (link-validation follow-ups, all optional — from the final review)
+- **Sent vs given-up are indistinguishable on the row** (both `notified=1`); the split lives only in the
+  run audit. Add a `dead`/reason column if you want row-level visibility.
+- **Strict `200`-only rejects rare `204`/`202`** — deliberate ("clean 200 only" was the chosen design); no
+  current source returns those on HEAD.
+- The **plan doc still says literal `20`** for the pool (code is `4 × DIGEST_TOP_N`) — stale doc, no impact.
+- Spec/plan (git-ignored scratch): `docs/superpowers/{specs,plans}/2026-06-09-digest-link-validation*`.
+
+---
+
+## ▶ Session 2026-06-04 (history)
 
 **State:** `main` @ `5b350d4`, pushed to origin, working tree clean. `tsc --noEmit` **0 errors**,
 **138 tests** pass fully offline (`npm test`, no wrangler/network). **Nothing deployed yet** — prod is
@@ -138,7 +198,7 @@ reports `usage.neurons` (Gemma does not), so it over/under-states real spend som
 | Secrets | `RESEND_API_KEY`, `DIGEST_TO`, `DIGEST_FROM` (= `onboarding@resend.dev`) |
 | Crons | `*/30` → `runFetchTick`, `*/15` → `runScoreTick`, `0 5 * * *` → `runDigestTick` |
 | Active sources | `free-work` only (reddit `enabled:false` — 403s unauthenticated) |
-| Migrations applied | `0001_init` + `0002_missions` (M3 added NO migration) |
+| Migrations applied | prod: `0001_init` + `0002_missions`. ⚠️ **`0003_validation_fails` is NEW on PR #3 — must be applied `--remote` BEFORE deploying that branch** |
 | Access | **Cloudflare Access — owner email only** (team `bold-bonus-d767.cloudflareaccess.com`, aud `b6d5c44f…dc2c17`) |
 | Dashboard | https://missions-free.jeremn-code.workers.dev/ (behind Access — log in via one-time PIN) |
 

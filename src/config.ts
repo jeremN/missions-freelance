@@ -79,3 +79,24 @@ export const scoringProfile: ScoringProfile = {
  * by score (no absolute threshold). Un-selected missions compete the next day.
  */
 export const DIGEST_TOP_N = 5;
+
+/**
+ * Daily digest link validation. The digest over-selects this many un-notified
+ * candidates so that broken links can be dropped and backfilled while still
+ * shipping a full DIGEST_TOP_N of working links. Kept at 4× the digest size so
+ * the buffer scales automatically if DIGEST_TOP_N changes.
+ */
+export const DIGEST_VALIDATION_POOL = 4 * DIGEST_TOP_N;
+
+/**
+ * Consecutive failed link validations before a mission is retired (marked
+ * notified) so it stops occupying a pool slot and being re-checked daily.
+ */
+export const DIGEST_GIVE_UP_AFTER = 3;
+
+/**
+ * Per-link validation timeout (HEAD/GET), in milliseconds. A Worker subrequest
+ * inherits a generous cap; 5s keeps the (up to DIGEST_VALIDATION_POOL) concurrent
+ * checks well inside the digest tick's budget while tolerating slow job boards.
+ */
+export const LINK_CHECK_TIMEOUT_MS = 5000;
