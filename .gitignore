@@ -11,3 +11,7 @@ dist/
 # Superpowers workflow artifacts (specs/plans) are local-only design scratch.
 # Durable decisions belong in committed ADRs (e.g. docs/adr/), not here.
 docs/superpowers/
+
+# Local-only notes (security/ops runbooks with account IDs, etc.). Never commit
+# to this PUBLIC repo. Durable, non-sensitive decisions belong in committed docs.
+docs/.local/
