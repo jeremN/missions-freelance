@@ -1,1 +1,0 @@
-ALTER TABLE missions ADD COLUMN validation_fails INTEGER NOT NULL DEFAULT 0;
